@@ -18,17 +18,6 @@ Open the auction house, click the **Sugar Daddy** tab and hit **Scan**.
 - The gear button has extra filters: skip slots, minimum quality, ignore
   items worse than what's in your bags, and so on.
 
-## Commands
-
-```
-/sugar                  open the tab
-/sugar scan             scan (AH must be open)
-/sugar price 2g50s      max price, 0 for no limit
-/sugar weight agi 1.2   set a stat weight
-/sugar stats            list stat keys
-/sugar reset            reset weights for the current spec
-```
-
 ## Install
 
 Drop the `SugarDaddy` folder into `Interface/AddOns`.

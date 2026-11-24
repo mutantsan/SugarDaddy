@@ -131,7 +131,6 @@ local talentSpec, talentRead = nil, false
 local merged
 local listeners = {}
 
-function SD.IsStat(stat) return STAT_NAME[stat] ~= nil end
 function SD.StatName(stat) return STAT_NAME[stat] or stat end
 
 function SD.ClassSpecs()

@@ -796,8 +796,6 @@ function UI.Refresh()
     if #shown > visibleRows then
         tab.page:SetText(("Rows %d-%d of %d"):format(offset + 1,
             math.min(offset + visibleRows, #shown), #shown))
-    elseif #results > 0 then
-        tab.page:SetText("Shift-click links, Ctrl-click previews")
     else
         tab.page:SetText("")
     end

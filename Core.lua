@@ -83,60 +83,9 @@ function SD.Money(copper)
     return CoinString(copper)
 end
 
--- "12", "12g", "12.5", "12g 50s", "1g50s20c" -> copper
-function SD.ParseMoney(text)
-    text = (text or ""):lower():gsub("%s", "")
-    if text == "" or text == "0" then return 0 end
-    local plain = tonumber(text)
-    if plain then return math.floor(plain * SD.COPPER_PER_GOLD + 0.5) end
-    local g = tonumber(text:match("([%d%.]+)g")) or 0
-    local s = tonumber(text:match("([%d%.]+)s")) or 0
-    local c = tonumber(text:match("([%d%.]+)c")) or 0
-    local total = math.floor(g * SD.COPPER_PER_GOLD + s * 100 + c + 0.5)
-    if total == 0 and not text:find("[gsc]") then return nil end
-    return total
-end
-
--- Slash commands
-local HELP = {
-    "/sugar - switch the auction house to the Sugar Daddy tab",
-    "/sugar scan - scan the auction house (it must be open)",
-    "/sugar price <amount> - max price, e.g. 15g, 2g50s or 50s; 0 = no limit",
-    "/sugar weight <stat> <weight> - set a stat weight, e.g. /sugar weight agi 1.2",
-    "/sugar stats - list the stat keys",
-    "/sugar reset - reset this spec's weights to the defaults",
-}
-
-local function Slash(input)
-    local cmd, rest = (input or ""):match("^%s*(%S*)%s*(.-)%s*$")
-    cmd = cmd:lower()
-    if cmd == "" or cmd == "show" then return SD.UI.Toggle() end
-    if cmd == "scan" then return SD.Scanner.Start() end
-    if cmd == "price" then
-        local copper = SD.ParseMoney(rest)
-        if not copper then return SD.Print("Couldn't read that price.") end
-        SD.SetMaxPrice(copper)
-        return SD.Print(copper > 0 and ("Max price: " .. SD.Money(copper)) or "No max price.")
-    end
-    if cmd == "weight" then
-        local stat, value = rest:match("^(%S+)%s+(%S+)$")
-        value = tonumber(value)
-        if not (stat and value and SD.IsStat(stat:lower())) then
-            return SD.Print("Usage: /sugar weight <stat> <weight>. /sugar stats lists the stats.")
-        end
-        SD.SetWeight(stat:lower(), value)
-        return SD.Print(SD.StatName(stat:lower()) .. ": " .. value)
-    end
-    if cmd == "stats" then
-        local list = {}
-        for _, stat in ipairs(SD.STATS) do list[#list + 1] = stat[1] .. " (" .. stat[2] .. ")" end
-        return SD.Print(table.concat(list, ", "))
-    end
-    if cmd == "reset" then
-        SD.ResetWeights()
-        return SD.Print("Weights reset for " .. SD.SpecName() .. ".")
-    end
-    for _, line in ipairs(HELP) do SD.Print(line) end
+-- Slash command: /sugar switches the auction house to the Sugar Daddy tab.
+local function Slash()
+    SD.UI.Toggle()
 end
 
 SLASH_SUGARDADDY1, SLASH_SUGARDADDY2 = "/sugar", "/sugardaddy"
