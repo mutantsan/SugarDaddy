@@ -16,6 +16,7 @@ local ACCOUNT_DEFAULTS = {
     minQuality = 0,      -- 0 any, 2 green and better, 3 blue and better
     lowerArmor = false,  -- also suggest armor types below your class's best (a hunter's leather)
     sort = "gain",       -- "gain" (biggest upgrade) or "value" (upgrade per gold)
+    suffixBonus = {},    -- [auction house suffix id] = bonus IDs in item links ("1:12756"), learned from searches
 }
 local CHAR_DEFAULTS = {
     spec = false,        -- picked spec key, false = automatic from talents

@@ -17,6 +17,26 @@ local DEEP_TIMEOUT = 6         -- seconds per item search
 local BUY_TIMEOUT = 10
 local THROTTLE_RETRY = 1
 local PENDING_DELAY = 0.3
+local RESCORE_DELAY = 0.5      -- seconds; rescoring is batched while results stream in
+-- Safety margin on the best possible suffix, for items itemized above the budget formula.
+local SUFFIX_HEADROOM = 1.3
+-- Classic Era suffixes have up to two stats and no ratings; later versions up to three, ratings included.
+local ERA = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
+local SUFFIX_STATS = ERA and 2 or 3
+-- Stat budget by slot (Classic itemization): the share of an item's value the slot gets.
+local SLOT_BUDGET = {
+    INVTYPE_HEAD = 1, INVTYPE_CHEST = 1, INVTYPE_ROBE = 1, INVTYPE_LEGS = 1, INVTYPE_2HWEAPON = 1,
+    INVTYPE_SHOULDER = 0.77, INVTYPE_HAND = 0.77, INVTYPE_WAIST = 0.77, INVTYPE_FEET = 0.77,
+    INVTYPE_TRINKET = 0.7, INVTYPE_NECK = 0.56, INVTYPE_WRIST = 0.56, INVTYPE_FINGER = 0.56, INVTYPE_CLOAK = 0.56,
+    INVTYPE_SHIELD = 0.56, INVTYPE_HOLDABLE = 0.56, INVTYPE_WEAPON = 0.42, INVTYPE_WEAPONMAINHAND = 0.42,
+    INVTYPE_WEAPONOFFHAND = 0.42, INVTYPE_RANGED = 0.32, INVTYPE_RANGEDRIGHT = 0.32, INVTYPE_THROWN = 0.32,
+    INVTYPE_RELIC = 0.32,
+}
+-- How much of each stat one budget point buys.
+local PER_BUDGET = { str = 1, agi = 1, sta = 1, int = 1, spi = 1, def = 1, ap = 2, rap = 2.5, heal = 2.2,
+    fire = 1.4, frost = 1.4, shadow = 1.4, nature = 1.4, arcane = 1.4, holy = 1.4, mp5 = 0.4, bv = 2, armor = 10 }
+-- Ratings, converted to percent (the weights' unit). Not on Classic Era suffixes.
+local RATING_PER_BUDGET = { haste = 0.1, exp = 0.1, dodge = 1 / 12, block = 0.2, arp = 1.5 }
 local UNCOMMON = 2
 local WEAPON = (Enum.ItemClass and Enum.ItemClass.Weapon) or 2
 local ARMOR = (Enum.ItemClass and Enum.ItemClass.Armor) or 4
@@ -45,6 +65,18 @@ local function Update()
     if SD.UI and SD.UI.Refresh then SD.UI.Refresh() end
 end
 
+local PumpDeep
+
+local rescoreSoon = false
+local function RescoreSoon()
+    if rescoreSoon then return end
+    rescoreSoon = true
+    C_Timer.After(RESCORE_DELAY, function()
+        rescoreSoon = false
+        Scanner.Rescore()
+    end)
+end
+
 local showSummary = false     -- when done, the status line is the live summary
 
 local function Status(text)
@@ -61,15 +93,10 @@ local function SameKey(a, b)
     return a and b and a.itemID == b.itemID and (a.itemSuffix or 0) == (b.itemSuffix or 0)
 end
 
--- The link to weigh an auction house item by. On Forever a suffix ("of the Monkey") is a bonus ID in the link, and
--- its stats scale with the item, so an item key with a suffix is asked for its real link (as Auctionator's
--- tooltips do). Plain items are weighed by their base link.
+-- The link to weigh an auction house item by: its base link. A suffix ("of the Monkey") isn't in the key's link
+-- (the game's tooltip link for a key leaves it out), so suffix items are weighed by a learned link (see Resolve)
+-- or listing by listing.
 local function KeyLink(key)
-    if (key.itemSuffix or 0) ~= 0 and C_TooltipInfo and C_TooltipInfo.GetItemKey then
-        local ok, info = pcall(C_TooltipInfo.GetItemKey, key.itemID, key.itemLevel or 0, key.itemSuffix)
-        local link = ok and info and info.hyperlink
-        if link and GetItemInfoInstant(link) == key.itemID then return link end
-    end
     return "item:" .. key.itemID
 end
 
@@ -120,8 +147,129 @@ local function BagBest(weights, power)
     return best
 end
 
+-- Suffixes without searching ------------------------------------------------------------------------------------
+-- The auction house names a suffix by its own id; item links carry it as bonus IDs. Each search shows both, so the
+-- pair is remembered, and later items with that suffix get their link built and weighed right away. A built link
+-- is only trusted when its name matches the auction house's name for the item ("Elder's Cloak of the Champion").
+
+local function LinkFields(link)
+    local itemString = link and link:match("item:([%-%d:]+)")
+    if not itemString then return nil end
+    local fields = {}
+    for field in (itemString .. ":"):gmatch("([^:]*):") do fields[#fields + 1] = field end
+    return fields
+end
+
+-- "1:12756": the bonus count and IDs of a link (fields 13 on), or nil when it has none.
+local function BonusOf(link)
+    local fields = LinkFields(link)
+    local count = fields and tonumber(fields[13])
+    if not count or count < 1 then return nil end
+    local parts = { count }
+    for i = 1, count do
+        if not tonumber(fields[13 + i]) then return nil end
+        parts[#parts + 1] = fields[13 + i]
+    end
+    return table.concat(parts, ":")
+end
+
+local function Learn(entry)
+    local suffix = entry.key.itemSuffix or 0
+    if suffix == 0 or not entry.listings[1] then return end
+    local bonus = BonusOf(entry.listings[1].link)
+    if not bonus then return end
+    for _, listing in ipairs(entry.listings) do
+        if BonusOf(listing.link) ~= bonus then return end
+    end
+    SD.db.suffixBonus[tostring(suffix)] = bonus
+end
+
+-- Weigh suffix items whose suffix is already known by a built link instead of a search.
+local function Resolve()
+    local known = SD.db.suffixBonus
+    for _, entry in ipairs(entries) do
+        local bonus = entry.unchecked and entry ~= deepBusy and known[tostring(entry.key.itemSuffix or 0)]
+        if bonus and entry.triedBonus ~= bonus then
+            local info = AH.GetItemKeyInfo and AH.GetItemKeyInfo(entry.key)
+            local link = ("item:%d::::::::%d::::%s"):format(entry.id, UnitLevel("player"), bonus)
+            local name = GetItemInfo(link)
+            local stats = name and info and info.itemName and SD.Stats(link)
+            if stats then
+                entry.triedBonus = bonus   -- checked once; a mismatch leaves it to a search
+                if name == info.itemName and SD.HasRealStats(stats) then
+                    entry.unchecked, entry.perListing = nil, nil
+                    entry.listings[1] = { link = link, price = entry.minPrice }
+                end
+            end
+        end
+    end
+end
+
+-- Most one budget point of suffix can be worth with these weights. Stats share the budget as
+-- sum(stat ^ 1.5) = budget ^ 1.5, so the best mix of the top stats worths k is worth (sum k^3)^(1/3) per point.
+local function SuffixWorth(weights)
+    local w = function(stat) return math.max(weights[stat] or 0, 0) end
+    local worths = { 1.2 * (w("spell") + w("heal")) }
+    for stat, per in pairs(PER_BUDGET) do worths[#worths + 1] = w(stat) * per end
+    if not ERA then
+        for stat, per in pairs(RATING_PER_BUDGET) do worths[#worths + 1] = w(stat) * per end
+        worths[#worths + 1] = (w("hit") + w("shit")) / 10
+        worths[#worths + 1] = (w("crit") + w("scrit")) / 14
+    end
+    table.sort(worths, function(a, b) return a > b end)
+    local cubes = 0
+    for i = 1, SUFFIX_STATS do cubes = cubes + (worths[i] or 0) ^ 3 end
+    return cubes ^ (1 / 3)
+end
+
+-- Most a hidden suffix could add to this item, in score points.
+local function SuffixMax(entry, perBudget)
+    local _, _, _, equipLoc = GetItemInfoInstant(entry.id)
+    local _, _, _, itemLevel = GetItemInfo(entry.link)
+    itemLevel = itemLevel or entry.key.itemLevel or 0
+    local value
+    if entry.quality >= 4 then
+        value = (itemLevel - 1.3) / 1.3
+    elseif entry.quality == 3 then
+        value = (itemLevel - 1.84) / 1.6
+    else
+        value = (itemLevel - 4) / 2
+    end
+    return SUFFIX_HEADROOM * math.max(value, 1) * (SLOT_BUDGET[equipLoc] or 1) * perBudget
+end
+
+-- Queue the suffix items still worth a search, most promising first. Items that can't pass the filters or beat
+-- your gear even with the best suffix wait; they get queued if settings, weights or gear change.
+local function Plan(weights, power, inBags)
+    wipe(deepQueue)
+    if stopped or not SD.db.deepScan then return end
+    local perBudget = SuffixWorth(weights)
+    local maxPrice = SD.char.maxPrice or 0
+    local byValue = SD.db.sort == "value"
+    local minUpgrade = SD.db.minUpgrade or 0
+    local minQuality = SD.db.minQuality or 0
+    local lowerArmor = SD.db.lowerArmor
+    for _, entry in ipairs(entries) do
+        if entry.unchecked and entry ~= deepBusy and entry.quality >= minQuality
+            and (lowerArmor or not entry.lowerArmor) and (maxPrice == 0 or entry.minPrice <= maxPrice) then
+            local _, points, slot = SD.BestGain(entry.id, entry.link, weights, power, SD.SlotAllowed)
+            if points then
+                local bound = points + SuffixMax(entry, perBudget)
+                if bound > 0 and 100 * bound / power >= MIN_GAIN and bound >= minUpgrade
+                    and not (inBags and (inBags[Gear.GroupOf(slot)] or 0) >= bound) then
+                    entry.priority = byValue and bound / math.max(entry.minPrice, 1) or bound
+                    deepQueue[#deepQueue + 1] = entry
+                end
+            end
+        end
+    end
+    table.sort(deepQueue, function(a, b) return a.priority > b.priority end)
+end
+
 function Scanner.Rescore()
     wipe(results)
+    local planned = false
+    if SD.db and #entries > 0 then Resolve() end
     if SD.db and #entries > 0 then
         local weights = SD.Weights()
         local power = SD.Power(weights)
@@ -132,6 +280,8 @@ function Scanner.Rescore()
             local minQuality = SD.db.minQuality or 0
             local lowerArmor = SD.db.lowerArmor
             local inBags = SD.db.checkBags and BagBest(weights, power) or nil
+            Plan(weights, power, inBags)
+            planned = true
             for _, entry in ipairs(entries) do
                 local best
                 if not entry.bought and entry.quality >= minQuality and (lowerArmor or not entry.lowerArmor) then
@@ -160,7 +310,13 @@ function Scanner.Rescore()
             end)
         end
     end
+    if not planned then wipe(deepQueue) end
     Update()
+    -- Settings or gear changed after the scan: check the suffix items that may now be upgrades.
+    if phase == "done" and ahOpen and #deepQueue > 0 then
+        phase = "deep"
+        PumpDeep()
+    end
 end
 
 local function Summary()
@@ -168,6 +324,13 @@ local function Summary()
     for _ in pairs(pendingRows) do loading = loading + 1 end
     local text = ("%d upgrade%s among %d items."):format(#results, #results == 1 and "" or "s", #entries)
     if loading > 0 then text = text .. (" %d still loading."):format(loading) end
+    local skipped = 0
+    for _, entry in ipairs(entries) do
+        if entry.unchecked then skipped = skipped + 1 end
+    end
+    if skipped > 0 and not stopped then
+        text = text .. (" Skipped %d with suffixes that couldn't make the list."):format(skipped)
+    end
     if stopped then text = text .. " Scan stopped early." end
     return text
 end
@@ -204,10 +367,8 @@ local function Consider(row)
     -- look its listings up one by one and weigh each.
     local hiddenSuffix = (quality or 0) >= UNCOMMON and not SD.HasRealStats(stats)
     if hiddenSuffix and not SD.db.deepScan then return end
-    if hiddenSuffix and SD.db.deepScan then
-        entry.perListing = true
-        local maxPrice = SD.char.maxPrice or 0
-        if maxPrice == 0 or row.minPrice <= maxPrice then deepQueue[#deepQueue + 1] = entry end
+    if hiddenSuffix then
+        entry.perListing, entry.unchecked, entry.link = true, true, link
     else
         entry.listings[1] = { link = link, price = row.minPrice }
     end
@@ -226,8 +387,6 @@ local function ReadListings(entry)
     end
 end
 
-local PumpDeep
-
 local function Finish()
     phase = "done"
     showSummary = true
@@ -238,6 +397,7 @@ PumpDeep = function()
     if phase ~= "deep" or deepBusy or buy then return end
     local entry = table.remove(deepQueue, 1)
     if not entry then return Finish() end
+    entry.unchecked = nil
     deepBusy = entry
     Status(("Checking items with suffixes listing by listing... %d left."):format(#deepQueue + 1))
     local myGen = gen
@@ -253,14 +413,6 @@ PumpDeep = function()
     end)
 end
 
-local function ResumeDeep()
-    if stopped then return end
-    if #deepQueue > 0 and (phase == "deep" or phase == "done") then
-        phase = "deep"
-        PumpDeep()
-    end
-end
-
 -- Items whose data arrived late
 local function ProcessPending()
     pendingScheduled = false
@@ -270,12 +422,8 @@ local function ProcessPending()
         for _, row in ipairs(rows or {}) do Consider(row) end
     end
     wipe(readyIDs)
+    if phase == "done" then showSummary = true end
     Scanner.Rescore()
-    if phase == "done" then
-        if #deepQueue > 0 then return ResumeDeep() end
-        showSummary = true
-        Update()
-    end
 end
 
 local function OnItemData(_, itemID)
@@ -465,8 +613,9 @@ SD.On("ITEM_SEARCH_RESULTS_UPDATED", function(_, itemKey)
     local entry = deepBusy
     if not (entry and SameKey(itemKey, entry.key)) then return end
     ReadListings(entry)
+    Learn(entry)
     deepBusy = nil
-    Scanner.Rescore()
+    RescoreSoon()
     PumpDeep()
 end)
 
@@ -475,6 +624,7 @@ function Scanner.Buy(result)
     if buy then return SD.Print("Still busy with the last purchase.") end
     if GetMoney() < result.listing.price then return SD.Print("You can't afford that one.") end
     if deepBusy then
+        deepBusy.unchecked = true
         table.insert(deepQueue, 1, deepBusy)
         deepBusy = nil
     end
@@ -545,15 +695,6 @@ SD.On("AUCTION_HOUSE_CLOSED", function()
     if SD.UI then SD.UI.OnAuctionHouse(false) end
 end)
 
-local rescoreSoon = false
-local function RescoreSoon()
-    if rescoreSoon then return end
-    rescoreSoon = true
-    C_Timer.After(0.2, function()
-        rescoreSoon = false
-        Scanner.Rescore()
-    end)
-end
 SD.On("PLAYER_EQUIPMENT_CHANGED", RescoreSoon)
 SD.On("PLAYER_LEVEL_UP", RescoreSoon)
 SD.On("BAG_UPDATE_DELAYED", function()
