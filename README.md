@@ -1,3 +1,5 @@
+<img src="media/logo.jpeg" alt="Sugar Daddy logo" width="160" align="right">
+
 # Sugar Daddy
 
 Finds gear upgrades on the auction house that you can actually afford.
