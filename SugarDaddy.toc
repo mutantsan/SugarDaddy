@@ -1,0 +1,17 @@
+## Interface: 11509, 16001
+## Title: |cffff69b4Sugar Daddy|r
+## Notes: Scans the auction house for gear at your level, weighs it by your stat priorities and tells you the best upgrade you can afford.
+## Author: mutantsan
+## Version: 0.1.0
+## SavedVariables: SugarDaddyDB
+## SavedVariablesPerCharacter: SugarDaddyCharDB
+## IconTexture: Interface\Icons\INV_Misc_Coin_02
+
+Libs\LibStub\LibStub.lua
+Libs\LibAHTab\LibAHTab.lua
+Core.lua
+Weights.lua
+Gear.lua
+Worth.lua
+Scanner.lua
+UI.lua
