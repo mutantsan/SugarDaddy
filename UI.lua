@@ -731,7 +731,9 @@ local function Build()
     tab.price = PriceInput(tab)
     tab.price:SetPoint("LEFT", priceLabel, "RIGHT", 10, 0)
 
-    tab.scan = Button(tab, "Scan", 110, function() SD.Scanner.Start() end)
+    tab.scan = Button(tab, "Scan", 110, function()
+        if SD.Scanner.Busy() then SD.Scanner.Stop() else SD.Scanner.Start() end
+    end)
     tab.scan:SetPoint("TOPRIGHT", -8, -38)
 
     -- Status line and page counter
@@ -784,8 +786,8 @@ function UI.Refresh()
     SetIfIdle(tab.maxLevel, tostring(maxLevel))
     tab.price:ShowPrice(SD.char.maxPrice)
 
-    tab.scan:SetEnabled(Scanner.AHOpen() and not Scanner.Busy())
-    tab.scan:SetText(Scanner.Busy() and "Scanning..." or "Scan")
+    tab.scan:SetEnabled(Scanner.AHOpen())
+    tab.scan:SetText(Scanner.Busy() and "Stop" or "Scan")
     tab.status:SetText(Scanner.Status())
 
     local shown = DisplayList(results)

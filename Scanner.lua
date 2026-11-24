@@ -28,6 +28,7 @@ local QUALITIES = { "CommonQuality", "UncommonQuality", "RareQuality", "EpicQual
 local ahOpen = false
 local gen = 0
 local phase = "idle"           -- idle, browse, deep, done
+local stopped = false          -- the last scan was cut short: results are partial
 local status = "Open the auction house and press Scan."
 local entries = {}             -- one per auction house item: { key, id, perListing, listings = { {link, price, auctionID} } }
 local results = {}
@@ -167,6 +168,7 @@ local function Summary()
     for _ in pairs(pendingRows) do loading = loading + 1 end
     local text = ("%d upgrade%s among %d items."):format(#results, #results == 1 and "" or "s", #entries)
     if loading > 0 then text = text .. (" %d still loading."):format(loading) end
+    if stopped then text = text .. " Scan stopped early." end
     return text
 end
 
@@ -252,6 +254,7 @@ PumpDeep = function()
 end
 
 local function ResumeDeep()
+    if stopped then return end
     if #deepQueue > 0 and (phase == "deep" or phase == "done") then
         phase = "deep"
         PumpDeep()
@@ -289,6 +292,7 @@ SD.On("GET_ITEM_INFO_RECEIVED", OnItemData)
 
 local function Stop(text)
     gen = gen + 1
+    stopped = true
     deepBusy = nil
     wipe(deepQueue)
     phase = #entries > 0 and "done" or "idle"
@@ -391,6 +395,7 @@ function Scanner.Start()
     wipe(pendingRows)
     wipe(readyIDs)
     deepBusy = nil
+    stopped = false
     SD.Forget()
     if SD.UI and SD.UI.ResetScroll then SD.UI.ResetScroll() end
     local minLevel, maxLevel = Scanner.LevelRange()
@@ -402,6 +407,15 @@ function Scanner.Start()
     Status(("Browsing the auction house for gear of level %d-%d..."):format(minLevel, maxLevel))
     Watchdog()
     WhenReady(SendBrowse)
+end
+
+function Scanner.Stop()
+    if not Scanner.Busy() then return end
+    Stop("Scan stopped.")
+    if phase == "done" then
+        showSummary = true
+        Update()
+    end
 end
 
 -- Buying ---------------------------------------------------------------------------------------------------------
