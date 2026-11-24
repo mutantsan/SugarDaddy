@@ -11,16 +11,30 @@ biggest upgrade or by upgrade per gold, and buy straight from the list.
 ## Usage
 
 Open the auction house, click the **Sugar Daddy** tab and hit **Scan**.
+Set a required level range and a max price to narrow things down.
 
-- Spec is picked from your talents, or set it by hand.
-- **Weights** lets you tweak how much each stat is worth.
-- Set a required level range and a max price to narrow things down.
-- The gear button has extra filters: skip slots, minimum quality, ignore
-  items worse than what's in your bags, and so on.
+### Weights
+
+Spec is picked from your talents, or set it by hand. **Weights** shows what
+each stat is worth to that spec; change any number or add stats you care about.
+
+![Weights](media/weights.png)
+
+### Settings
+
+The gear button: which slots to show, how many options per slot, minimum
+upgrade and quality, skipping items your bags already beat, lower armor
+types, and whether to check suffix items ("of the Monkey") listing by listing.
+
+![Settings](media/settings.png)
 
 ## Install
 
-Drop the `SugarDaddy` folder into `Interface/AddOns`.
+1. On GitHub, click **Code → Download ZIP** and unpack it.
+2. Rename the folder from `SugarDaddy-master` to `SugarDaddy`. WoW won't load
+   the addon otherwise.
+3. Move it into `World of Warcraft/_classic_era_/Interface/AddOns` (or the
+   folder for whichever Classic version you play).
 
 ## License
 
