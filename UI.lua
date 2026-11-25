@@ -305,16 +305,13 @@ local function UsedStats()
 end
 
 local HINT_OWN = "Worth of 1 point (or 1%). 0 ignores a stat."
-local HINT_PAWN = "From Pawn, read-only here. Edit the scale in Pawn (/pawn)."
+local HINT_PAWN = "Edit the scale in Pawn (/pawn)."
 
 local function RefreshWeights()
     if not (weights and weights:IsShown()) then return end
     local pawn = SD.WeightsFromPawn()
-    local Pawn = SD.PawnScale
-    weights.title:SetText(pawn and ("Pawn: " .. (Pawn.Name() or "?")) or ("Weights: " .. SD.SpecName()))
+    weights.title:SetText(pawn and SD.ChoiceText() or ("Weights: " .. SD.SpecName()))
     weights.hint:SetText(pawn and HINT_PAWN or HINT_OWN)
-    weights.source:SetShown(Pawn ~= nil and Pawn.Available())
-    weights.source:SetText(pawn and "Source: Pawn" or "Source: Sugar Daddy")
     weights.reset:SetEnabled(not pawn)
     local used, base = UsedStats()
     for i, line in ipairs(weightLines) do
@@ -407,38 +404,11 @@ local function BuildWeights()
     weights:SetWidth(WEIGHTS_W)
     weights.title = Label(weights, "Weights", "GameFontNormal")
     weights.title:SetPoint("TOPLEFT", 10, -8)
-    weights.title:SetPoint("RIGHT", -150, 0)
+    weights.title:SetPoint("RIGHT", -10, 0)
     weights.title:SetJustifyH("LEFT")
     weights.title:SetWordWrap(false)
     weights.hint = Label(weights, HINT_OWN, "GameFontDisableSmall")
     weights.hint:SetPoint("TOPLEFT", 10, -26)
-    -- Where the numbers come from: our own per-spec weights, or one of your Pawn scales.
-    weights.source = Button(weights, "", 136, function(_, mouse)
-        if picker then picker:Hide() end
-        if mouse == "RightButton" then SD.PawnScale.Pick(nil) else SD.PawnScale.Next() end
-    end)
-    weights.source:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    weights.source:SetPoint("TOPRIGHT", -8, -5)
-    weights.source:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Weights source", 1, 1, 1)
-        GameTooltip:AddLine("Click to step through the scales Pawn shows for this character, then back to "
-            .. "Sugar Daddy's own. Right-click for Sugar Daddy's own.", nil, nil, nil, true)
-        local list = SD.PawnScale.List()
-        if #list == 0 then
-            GameTooltip:AddLine("Pawn has no scales turned on for this character yet.", 1, 0.5, 0.25, true)
-        else
-            GameTooltip:AddLine(" ")
-            local picked = SD.PawnScale.Picked()
-            for _, info in ipairs(list) do
-                local on = info.name == picked
-                GameTooltip:AddLine((on and "> " or "   ") .. info.label, on and 0.2 or 0.8, on and 1 or 0.8, on and 0.2 or 0.8)
-            end
-        end
-        GameTooltip:Show()
-    end)
-    weights.source:SetScript("OnLeave", GameTooltip_Hide)
-    weights.source:Hide()
     local colW = (WEIGHTS_W - 20) / WEIGHT_COLS
     for i = 1, WEIGHT_COLS * WEIGHT_ROWS do
         local col, r = math.floor((i - 1) / WEIGHT_ROWS), (i - 1) % WEIGHT_ROWS
@@ -714,6 +684,56 @@ local function PriceInput(parent)
     return money
 end
 
+-- Spec menu: your class's specs (Sugar Daddy's weights), then the scales Pawn shows for you, if it's installed.
+-- Starts on the spec your talents point to. Clients without the modern dropdown get a button that cycles them.
+local SPEC_TIP = "Whose weights score items: Sugar Daddy's for a spec, or one of your Pawn scales. "
+    .. "It starts on the spec your talents point to."
+
+local function HasTemplate(name)
+    return C_XMLUtil and C_XMLUtil.GetTemplateInfo and C_XMLUtil.GetTemplateInfo(name) ~= nil
+end
+
+local function SpecMenu(parent)
+    if HasTemplate("WowStyle1DropdownTemplate") then
+        local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+        if ok and dd and dd.SetupMenu then
+            dd:SetWidth(200)
+            dd:SetupMenu(function(_, root)
+                for _, spec in ipairs(SD.ClassSpecs()) do
+                    root:CreateRadio(spec.name, function() return SD.SpecSelected(spec.key) end,
+                        function() SD.PickSpec(spec.key) end)
+                end
+                local scales = SD.PawnScale and SD.PawnScale.List() or {}
+                if #scales > 0 then
+                    root:CreateDivider()
+                    root:CreateTitle("Pawn")
+                    local picked = SD.PawnScale.Picked()
+                    for _, info in ipairs(scales) do
+                        root:CreateRadio(info.label, function() return info.name == picked end,
+                            function() SD.PawnScale.Pick(info.name) end)
+                    end
+                end
+            end)
+            function dd:ShowChoice()
+                if self.OverrideText then self:OverrideText(SD.ChoiceText())
+                elseif self.GenerateMenu then self:GenerateMenu() end
+            end
+            dd:HookScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText("Weights", 1, 1, 1)
+                GameTooltip:AddLine(SPEC_TIP, nil, nil, nil, true)
+                GameTooltip:Show()
+            end)
+            dd:HookScript("OnLeave", GameTooltip_Hide)
+            return dd
+        end
+    end
+    local b = Button(parent, "", 200, function() SD.NextSpec() end)
+    function b:ShowChoice() self:SetText(SD.ChoiceText()) end
+    Tip(b, "Weights", SPEC_TIP .. " Click for the next one.")
+    return b
+end
+
 -- The tab --------------------------------------------------------------------------------------------------------
 
 local function Build()
@@ -722,12 +742,8 @@ local function Build()
     tab:SetPoint("BOTTOMRIGHT", -4, 27)
 
     -- Row 1: spec, sort, weights
-    tab.spec = Button(tab, "", 180, function(_, mouse)
-        if mouse == "RightButton" then SD.PickSpec(false) else SD.NextSpec() end
-    end)
-    tab.spec:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    tab.spec = SpecMenu(tab)
     tab.spec:SetPoint("TOPLEFT", LEFT, -6)
-    Tip(tab.spec, "Spec", "Click for the next spec, right-click for Automatic (the talent tree you spent most points in).")
 
     tab.gear = Button(tab, "", 28, ToggleSettings)
     tab.gear:SetPoint("TOPRIGHT", -8, -6)
@@ -819,7 +835,7 @@ function UI.Refresh()
     local Scanner = SD.Scanner
     local results = Scanner.Results()
 
-    tab.spec:SetText("Spec: " .. SD.SpecName() .. (SD.char.spec and "" or " (Auto)"))
+    tab.spec:ShowChoice()
     tab.sort:SetText(SD.db.sort == "value" and "Sort: upgrade per gold" or "Sort: biggest upgrade")
 
     local minLevel, maxLevel = Scanner.LevelRange()

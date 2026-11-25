@@ -298,19 +298,39 @@ function SD.ShowStat(stat)
     Changed()
 end
 
+-- Picking one of our specs also leaves any Pawn scale. Picking the spec your talents point to stores "follow
+-- talents" (false), so a respec still switches it; only a different spec is pinned.
 function SD.PickSpec(key)
+    if key == SD.TalentSpec() then key = false end
     SD.char.spec = key or false
+    SD.char.pawnScale = false
     Changed()
 end
 
--- Cycles Automatic -> each class spec -> Automatic.
-function SD.NextSpec()
-    local mine = SD.ClassSpecs()
-    local current = SD.char.spec
-    if not current then return SD.PickSpec(mine[1] and mine[1].key) end
-    for i, spec in ipairs(mine) do
-        if spec.key == current then return SD.PickSpec(mine[i + 1] and mine[i + 1].key or false) end
-    end
-    SD.PickSpec(false)
+-- What the spec menu shows: "Beast Mastery" or "Pawn: Survival".
+function SD.ChoiceText()
+    if FromPawn() then return "Pawn: " .. (SD.PawnScale.ShortName() or "?") end
+    return SD.SpecName()
 end
 
+-- True when this menu entry is the one in use.
+function SD.SpecSelected(key) return not FromPawn() and SD.ActiveSpec() == key end
+
+-- Cycles each class spec -> each Pawn scale -> back (for clients without the dropdown).
+function SD.NextSpec()
+    local choices = {}
+    for _, spec in ipairs(SD.ClassSpecs()) do
+        choices[#choices + 1] = { pick = function() SD.PickSpec(spec.key) end, on = SD.SpecSelected(spec.key) }
+    end
+    if SD.PawnScale then
+        local picked = SD.PawnScale.Picked()
+        for _, info in ipairs(SD.PawnScale.List()) do
+            choices[#choices + 1] = { pick = function() SD.PawnScale.Pick(info.name) end, on = info.name == picked }
+        end
+    end
+    if #choices == 0 then return end
+    for i, choice in ipairs(choices) do
+        if choice.on then return (choices[i + 1] or choices[1]).pick() end
+    end
+    choices[1].pick()
+end

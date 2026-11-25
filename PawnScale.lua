@@ -22,8 +22,8 @@ local STAT_OF = {
 local IGNORED = -1000   -- Pawn marks "can't use" stats with a huge negative value
 
 local function Ready()
-    return PawnIsInitialized and type(PawnCommon) == "table" and type(PawnCommon.Scales) == "table"
-        and PawnGetAllScalesEx ~= nil
+    return type(PawnIsReady) == "function" and PawnIsReady() and type(PawnCommon) == "table"
+        and type(PawnCommon.Scales) == "table" and type(PawnGetAllScalesEx) == "function"
 end
 
 function PawnScale.Available() return Ready() and true or false end
@@ -47,6 +47,16 @@ function PawnScale.Name(name)
         or name
 end
 
+-- Pawn's own scales are named "Hunter: Beast Mastery"; under a Pawn heading the spec alone reads better.
+-- Scales you made keep their names.
+function PawnScale.ShortName(name)
+    name = name or PawnScale.Picked()
+    local scale = Scale(name)
+    local label = PawnScale.Name(name)
+    if scale and scale.Provider and label then label = label:gsub("^[^:]+:%s*", "") end
+    return label
+end
+
 -- The scales Pawn shows for this character (its "active scales"), in Pawn's own order.
 function PawnScale.List()
     local out = {}
@@ -54,7 +64,7 @@ function PawnScale.List()
     local ok, all = pcall(PawnGetAllScalesEx)
     if not ok or type(all) ~= "table" then return out end
     for _, info in ipairs(all) do
-        if info.IsVisible then out[#out + 1] = { name = info.Name, label = info.LocalizedName or info.Name } end
+        if info.IsVisible then out[#out + 1] = { name = info.Name, label = PawnScale.ShortName(info.Name) } end
     end
     return out
 end
@@ -86,21 +96,6 @@ function PawnScale.Weights()
         weights.heal = weights.heal or power
     end
     return weights
-end
-
--- Cycles our own weights -> each Pawn scale -> our own weights.
-function PawnScale.Next()
-    local list = PawnScale.List()
-    local current = PawnScale.Picked()
-    local nextName
-    if not current then
-        nextName = list[1] and list[1].name
-    else
-        for i, info in ipairs(list) do
-            if info.name == current then nextName = list[i + 1] and list[i + 1].name end
-        end
-    end
-    PawnScale.Pick(nextName)
 end
 
 function PawnScale.Pick(name)

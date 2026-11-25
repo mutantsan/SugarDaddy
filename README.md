@@ -17,14 +17,13 @@ Set a required level range and a max price to narrow things down.
 
 ### Weights
 
-Spec is picked from your talents, or set it by hand. **Weights** shows what
+The spec menu starts on the spec your talents point to; pick another to shop for it. **Weights** shows what
 each stat is worth to that spec; change any number or add stats you care about.
 
 ![Weights](media/weights.png)
 
-Use [Pawn](https://www.curseforge.com/wow/addons/pawn)? The **Source** button in the Weights panel switches to
-any scale Pawn shows for your character, its defaults or your own. Edit the numbers in Pawn and Sugar Daddy
-follows. Pawn is optional.
+Use [Pawn](https://www.curseforge.com/wow/addons/pawn)? The spec menu also lists the scales Pawn shows for your
+character, its defaults or your own. Pick one, edit its numbers in Pawn, and Sugar Daddy follows. Pawn is optional.
 
 ### Settings
 

@@ -3,12 +3,15 @@
 ## 0.3.0
 
 ### Added
-- **Pawn scales as weights.** With [Pawn](https://www.curseforge.com/wow/addons/pawn) installed, the Weights
-  panel gets a **Source** button: click to step through the scales Pawn shows for your character (its
-  defaults or your own, a PvP scale for example), right-click to go back to Sugar Daddy's own weights.
-  The choice is saved per character.
-- While a Pawn scale is the source, the panel shows its name and its numbers read-only; edit them in Pawn
-  (`/pawn`) and Sugar Daddy follows straight away, including renamed, imported or deleted scales.
+- **Pawn scales as weights.** With [Pawn](https://www.curseforge.com/wow/addons/pawn) installed, the spec menu
+  (top left) lists the scales Pawn shows for your character under a **Pawn** heading, its defaults or your own
+  (a PvP scale, for example). Pick one and it scores your upgrades. The choice is saved per character.
+- While a Pawn scale is picked, the Weights panel shows its numbers read-only; edit them in Pawn (`/pawn`)
+  and Sugar Daddy follows straight away, including renamed, imported or deleted scales.
+
+### Changed
+- The Spec button is now a dropdown menu. It starts on the spec your talents point to and follows a respec;
+  picking another spec pins it. The separate "Automatic" choice is gone.
 
 ### Notes
 - Pawn is optional. Without it Sugar Daddy works exactly as before.
