@@ -324,13 +324,6 @@ local function Summary()
     for _ in pairs(pendingRows) do loading = loading + 1 end
     local text = ("%d upgrade%s among %d items."):format(#results, #results == 1 and "" or "s", #entries)
     if loading > 0 then text = text .. (" %d still loading."):format(loading) end
-    local skipped = 0
-    for _, entry in ipairs(entries) do
-        if entry.unchecked then skipped = skipped + 1 end
-    end
-    if skipped > 0 and not stopped then
-        text = text .. (" Skipped %d with suffixes that couldn't make the list."):format(skipped)
-    end
     if stopped then text = text .. " Scan stopped early." end
     return text
 end

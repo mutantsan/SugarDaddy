@@ -40,6 +40,10 @@ local tab, list, weights, picker, settings
 local rows, weightLines = {}, {}
 local offset, visibleRows = 0, 0
 local expanded = {}            -- slot groups showing all their options
+local selected                 -- { entry, link } of the row you clicked: stays lit while you look at others
+local collapsed = {}           -- slot groups folded to their header (kept across scans this session)
+local PLUS = "Interface\\Buttons\\UI-PlusButton-Up"
+local MINUS = "Interface\\Buttons\\UI-MinusButton-Up"
 
 local function Label(parent, text, template)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontNormalSmall")
@@ -144,10 +148,7 @@ local function RowTip(row)
         GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
         GameTooltip:SetText(group.name, 1, 1, 1)
         GameTooltip:AddLine(("%d option%s"):format(#group.items, #group.items == 1 and "" or "s"), 0.8, 0.8, 0.8)
-        GameTooltip:AddLine("The header shows the slot's biggest upgrade.", 0.6, 0.6, 0.6)
-        if #group.items > PerSlot() then
-            GameTooltip:AddLine(expanded[group.key] and "Click to show fewer." or "Click to show all.", 0.6, 0.6, 0.6)
-        end
+        GameTooltip:AddLine(collapsed[group.key] and "Click to expand." or "Click to collapse.", 0.6, 0.6, 0.6)
         return GameTooltip:Show()
     end
     local result = row.result
@@ -183,6 +184,12 @@ local function NewRow(i)
     row.band = row:CreateTexture(nil, "BACKGROUND")
     row.band:SetAllPoints()
     row.band:SetColorTexture(1, 0.82, 0, 0.08)
+    row.sel = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+    row.sel:SetAllPoints()
+    row.sel:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    row.sel:SetBlendMode("ADD")
+    row.sel:SetVertexColor(1, 0.82, 0, 0.9)
+    row.sel:Hide()
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(18, 18)
     Columns(row, "GameFontHighlightSmall")
@@ -206,17 +213,32 @@ local function NewRow(i)
     end)
     row.buy:SetScript("OnLeave", GameTooltip_Hide)
     row.buy:SetMotionScriptsWhileDisabled(true)
+    -- On a slot header: "+N more" / "show fewer", over the price column.
+    row.more = CreateFrame("Button", nil, row)
+    row.more:SetAllPoints(row.price)
+    row.more:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    row.more:SetScript("OnClick", function(self)
+        local group = self:GetParent().group
+        if not group then return end
+        expanded[group.key] = not expanded[group.key] or nil
+        UI.Refresh()
+    end)
+    row.more:Hide()
     row:SetScript("OnEnter", RowTip)
     row:SetScript("OnLeave", GameTooltip_Hide)
     row:SetScript("OnClick", function(self)
         if self.group then
-            expanded[self.group.key] = not expanded[self.group.key] or nil
+            collapsed[self.group.key] = not collapsed[self.group.key] or nil
             return UI.Refresh()
         end
-        local link = self.result and DisplayLink(self.result.listing.link)
+        local result = self.result
+        local link = result and DisplayLink(result.listing.link)
         if not link then return end
         if IsModifiedClick("DRESSUP") then return DressUpItemLink(link) end
-        if IsModifiedClick("CHATLINK") then ChatEdit_InsertLink(link) end
+        if IsModifiedClick("CHATLINK") then return ChatEdit_InsertLink(link) end
+        local on = selected and selected.entry == result.entry and selected.link == result.listing.link
+        selected = not on and { entry = result.entry, link = result.listing.link } or nil
+        UI.Refresh()
     end)
     row:Hide()
     rows[i] = row
@@ -226,19 +248,26 @@ end
 local function PaintHeader(row, group)
     row.result, row.group = nil, group
     row.band:Show()
-    row.icon:Hide()
+    row.sel:Hide()
     row.buy:Hide()
-    row.name:SetPoint("LEFT", 6, 0)
+    row.icon:ClearAllPoints()
+    row.icon:SetPoint("LEFT", 4, 0)
+    row.icon:SetSize(14, 14)
+    row.icon:SetTexture(collapsed[group.key] and PLUS or MINUS)
+    row.icon:Show()
+    row.name:SetPoint("LEFT", 24, 0)
     row.name:SetText(GOLD .. group.name .. "|r")
     row.slot:SetText(GREY .. ("%d option%s"):format(#group.items, #group.items == 1 and "" or "s") .. "|r")
     local best = 0
     for _, item in ipairs(group.items) do best = math.max(best, item.points) end
     row.gain:SetText(GREEN .. "+" .. Score(best) .. "|r")
     local more = #group.items - PerSlot()
-    if more > 0 then
-        row.price:SetText(GREY .. (expanded[group.key] and "show fewer" or ("+%d more, click"):format(more)) .. "|r")
+    if more > 0 and not collapsed[group.key] then
+        row.price:SetText(GREY .. (expanded[group.key] and "show fewer" or ("+%d more"):format(more)) .. "|r")
+        row.more:Show()
     else
         row.price:SetText("")
+        row.more:Hide()
     end
     row:Show()
 end
@@ -249,6 +278,9 @@ local function PaintRow(row, item, indent)
     row.result, row.group = result, nil
     if not result then return row:Hide() end
     row.band:Hide()
+    row.more:Hide()
+    row.sel:SetShown(selected ~= nil and selected.entry == result.entry and selected.link == result.listing.link)
+    row.icon:SetSize(18, 18)
     row.icon:Show()
     row.buy:Show()
     row.icon:ClearAllPoints()
@@ -257,9 +289,9 @@ local function PaintRow(row, item, indent)
     local listing = result.listing
     row.icon:SetTexture(select(5, GetItemInfoInstant(result.entry.id)))
     row.name:SetText(DisplayLink(listing.link))
-    local slotText = (Gear.SLOT_NAME[result.slot] or "?") .. (result.entry.perListing and GREY .. " *|r" or "")
+    local slotText = Gear.SLOT_NAME[result.slot] or "?"
     if (result.entry.required or 0) > Who.Level() then
-        slotText = RED .. "Lv " .. result.entry.required .. "|r" .. (result.entry.perListing and GREY .. " *|r" or "")
+        slotText = RED .. "Lv " .. result.entry.required .. "|r"
     end
     row.slot:SetText(slotText)
     row.gain:SetText(GREEN .. "+" .. Score(result.points) .. "|r")
@@ -289,6 +321,7 @@ local function DisplayList(results)
     for _, group in ipairs(order) do
         out[#out + 1] = group
         local shown = expanded[group.key] and #group.items or math.min(PerSlot(), #group.items)
+        if collapsed[group.key] then shown = 0 end
         for i = 1, shown do out[#out + 1] = group.items[i] end
     end
     return out
@@ -591,7 +624,7 @@ local function BuildSettings()
     settings.deep = Check(settings, "With suffixes", function(on) SD.db.deepScan = on end)
     settings.deep:SetPoint("TOPLEFT", 8, y)
     Tip(settings.deep, "With suffixes",
-        "Items like \"... of the Monkey\" get their stats from a suffix. Each suffix is weighed by its real stats. When the auction house lumps an item's suffixes together, its listings are looked up one by one (slower; marked * in the list). Off: those items are skipped. Applies from the next scan.")
+        "Items like \"... of the Monkey\" get their stats from a suffix. Each suffix is weighed by its real stats. When the auction house lumps an item's suffixes together, its listings are looked up one by one (slower). Off: those items are skipped. Applies from the next scan.")
 
     local reset = Button(settings, "Reset settings", 130, function()
         wipe(SD.db.skipSlots)
@@ -961,6 +994,7 @@ end
 
 function UI.ResetScroll()
     offset = 0
+    selected = nil
     wipe(expanded)
 end
 

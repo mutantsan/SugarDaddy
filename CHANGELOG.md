@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+- Slots in the list can be collapsed.
+- A clicked item stays highlighted while you look at others.
+
+### Changed
+- Simpler status line and tooltips.
+
 ## 0.4.0
 
 ### Added
