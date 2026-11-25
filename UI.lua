@@ -6,6 +6,7 @@ local GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
 local LibAHTab = LibStub("LibAHTab-1-0")
 local Gear = SD.Gear
+local Who = SD.Who
 
 local UI = {}
 SD.UI = UI
@@ -157,13 +158,15 @@ local function RowTip(row)
     local old = result.replaced or 0
     GameTooltip:AddLine(("Sugar Daddy: gear score %s -> %s (+%s)"):format(Score(old), Score(old + result.points),
         Score(result.points)), 0.13, 1, 0.13)
-    local worn = GetInventoryItemLink("player", result.slot)
-    local alsoWorn = result.also and GetInventoryItemLink("player", result.also)
+    local worn = Who.Equipped(result.slot)
+    local alsoWorn = result.also and Who.Equipped(result.also)
     local replacedText = worn and (alsoWorn and (worn .. " and " .. alsoWorn) or worn) or alsoWorn
-    GameTooltip:AddLine("Replaces " .. (replacedText or ("your empty " .. (Gear.SLOT_NAME[result.slot] or "slot"))), 1, 1, 1)
+    local whose = Who.IsMe() and "your" or (Who.Name() .. "'s")
+    GameTooltip:AddLine("Replaces " .. (replacedText or (whose .. " empty " .. (Gear.SLOT_NAME[result.slot] or "slot"))), 1, 1, 1)
     if result.partner then GameTooltip:AddLine("Counted with " .. result.partner .. " in the other hand", 1, 1, 1) end
-    if (result.entry.required or 0) > UnitLevel("player") then
-        GameTooltip:AddLine(("You can wear it at level %d."):format(result.entry.required), 1, 0.25, 0.25)
+    if (result.entry.required or 0) > Who.Level() then
+        local who = Who.IsMe() and "You" or Who.Name()
+        GameTooltip:AddLine(("%s can wear it at level %d."):format(who, result.entry.required), 1, 0.25, 0.25)
     end
     GameTooltip:AddLine(result.entry.perListing and "Price of this exact listing (its suffix varies by listing)." or "Cheapest listing.",
         0.6, 0.6, 0.6)
@@ -255,7 +258,7 @@ local function PaintRow(row, item, indent)
     row.icon:SetTexture(select(5, GetItemInfoInstant(result.entry.id)))
     row.name:SetText(DisplayLink(listing.link))
     local slotText = (Gear.SLOT_NAME[result.slot] or "?") .. (result.entry.perListing and GREY .. " *|r" or "")
-    if (result.entry.required or 0) > UnitLevel("player") then
+    if (result.entry.required or 0) > Who.Level() then
         slotText = RED .. "Lv " .. result.entry.required .. "|r" .. (result.entry.perListing and GREY .. " *|r" or "")
     end
     row.slot:SetText(slotText)
@@ -328,8 +331,10 @@ local function RefreshWeights()
             line:Hide()
         end
     end
-    weights.add:SetEnabled(not pawn and #used < #SD.STATS and #used < #weightLines)
-    if picker and picker:IsShown() then picker:Fill(used) end
+    local open = picker and picker:IsShown()
+    if open and pawn then picker:Hide() open = false end   -- a Pawn scale can't take new stats
+    weights.add:SetEnabled(open or (not pawn and #used < #SD.STATS and #used < #weightLines))
+    if open then picker:Fill(used) end
 end
 
 -- "Add stat": a list of the stats not in the panel; a click adds one at 0 and puts the cursor in its box.
@@ -388,6 +393,9 @@ local function BuildPicker()
         end
         for i = n + 1, #self.buttons do self.buttons[i]:Hide() end
     end
+    -- While the list is open its button closes it again.
+    picker:SetScript("OnShow", function() weights.add:SetText("Back") end)
+    picker:SetScript("OnHide", function() weights.add:SetText("Add stat") end)
     picker:Hide()
 end
 
@@ -686,8 +694,7 @@ end
 
 -- Spec menu: your class's specs (Sugar Daddy's weights), then the scales Pawn shows for you, if it's installed.
 -- Starts on the spec your talents point to. Clients without the modern dropdown get a button that cycles them.
-local SPEC_TIP = "Whose weights score items: Sugar Daddy's for a spec, or one of your Pawn scales. "
-    .. "It starts on the spec your talents point to."
+local SPEC_TIP = "The stat weights used to score items. Starts on your talent spec."
 
 local function HasTemplate(name)
     return C_XMLUtil and C_XMLUtil.GetTemplateInfo and C_XMLUtil.GetTemplateInfo(name) ~= nil
@@ -697,7 +704,7 @@ local function SpecMenu(parent)
     if HasTemplate("WowStyle1DropdownTemplate") then
         local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
         if ok and dd and dd.SetupMenu then
-            dd:SetWidth(200)
+            dd:SetWidth(170)
             dd:SetupMenu(function(_, root)
                 for _, spec in ipairs(SD.ClassSpecs()) do
                     root:CreateRadio(spec.name, function() return SD.SpecSelected(spec.key) end,
@@ -728,9 +735,95 @@ local function SpecMenu(parent)
             return dd
         end
     end
-    local b = Button(parent, "", 200, function() SD.NextSpec() end)
+    local b = Button(parent, "", 170, function() SD.NextSpec() end)
     function b:ShowChoice() self:SetText(SD.ChoiceText()) end
     Tip(b, "Weights", SPEC_TIP .. " Click for the next one.")
+    return b
+end
+
+-- Character menu: whom you shop for. Your characters on this realm and faction show once they have logged in
+-- with Sugar Daddy; their gear and bags are as they last saw them.
+local CHAR_TIP = "The character you're finding upgrades for. Your other characters show up here "
+    .. "after they log in once."
+
+local function ClassColored(class, text)
+    local color = class and (C_ClassColor and C_ClassColor.GetClassColor(class) or RAID_CLASS_COLORS[class])
+    return color and color:WrapTextInColorCode(text) or text
+end
+
+local function CharLabel(info)
+    return ClassColored(info.class, info.name) .. GREY .. " " .. info.level .. "|r"
+end
+
+local function Ago(seen)
+    if not seen then return "unknown" end
+    local secs = math.max(0, time() - seen)
+    if secs < 3600 then return "just now" end
+    if secs < 86400 then return ("%d hours ago"):format(math.floor(secs / 3600)) end
+    local days = math.floor(secs / 86400)
+    return days == 1 and "a day ago" or ("%d days ago"):format(days)
+end
+
+local function CharText()
+    local rec = Who.Record()
+    if not rec then return "Me" end
+    return (Who.IsMe() and "Me: " or "For: ") .. ClassColored(rec.class, rec.name or "?")
+end
+
+local function CharTip(owner)
+    GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+    GameTooltip:SetText("Shopping for", 1, 1, 1)
+    GameTooltip:AddLine(CHAR_TIP, nil, nil, nil, true)
+    if not Who.IsMe() then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(("%s's gear and bags as last seen: %s."):format(Who.Name(), Ago(Who.Record().seen)),
+            1, 0.82, 0, true)
+    end
+    GameTooltip:Show()
+end
+
+local function CharMenu(parent)
+    if HasTemplate("WowStyle1DropdownTemplate") then
+        local ok, dd = pcall(CreateFrame, "DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+        if ok and dd and dd.SetupMenu then
+            dd:SetWidth(170)
+            dd:SetupMenu(function(_, root)
+                local others = {}
+                for _, info in ipairs(Who.List()) do
+                    root:CreateRadio(CharLabel(info), function() return info.key == Who.Key() end,
+                        function() Who.Set(info.key) end)
+                    if not info.me then others[#others + 1] = info end
+                end
+                if #others > 0 then
+                    root:CreateDivider()
+                    local forget = root:CreateButton("Forget a character")
+                    for _, info in ipairs(others) do
+                        forget:CreateButton(CharLabel(info), function()
+                            Who.Forget(info.key)
+                            UI.Refresh()
+                        end)
+                    end
+                end
+            end)
+            function dd:ShowChoice()
+                if self.OverrideText then self:OverrideText(CharText())
+                elseif self.GenerateMenu then self:GenerateMenu() end
+            end
+            dd:HookScript("OnEnter", CharTip)
+            dd:HookScript("OnLeave", GameTooltip_Hide)
+            return dd
+        end
+    end
+    -- Without the dropdown: click for the next character.
+    local b = Button(parent, "", 170, function()
+        local list = Who.List()
+        for i, info in ipairs(list) do
+            if info.key == Who.Key() then return Who.Set((list[i + 1] or list[1]).key) end
+        end
+    end)
+    function b:ShowChoice() self:SetText(CharText()) end
+    b:SetScript("OnEnter", CharTip)
+    b:SetScript("OnLeave", GameTooltip_Hide)
     return b
 end
 
@@ -741,9 +834,11 @@ local function Build()
     tab:SetPoint("TOPLEFT", 4, -28)
     tab:SetPoint("BOTTOMRIGHT", -4, 27)
 
-    -- Row 1: spec, sort, weights
+    -- Row 1: character, spec, sort, weights
+    tab.who = CharMenu(tab)
+    tab.who:SetPoint("TOPLEFT", LEFT, -6)
     tab.spec = SpecMenu(tab)
-    tab.spec:SetPoint("TOPLEFT", LEFT, -6)
+    tab.spec:SetPoint("LEFT", tab.who, "RIGHT", 6, 0)
 
     tab.gear = Button(tab, "", 28, ToggleSettings)
     tab.gear:SetPoint("TOPRIGHT", -8, -6)
@@ -779,7 +874,7 @@ local function Build()
     end)
     tab.maxLevel:SetNumeric(true)
     tab.maxLevel:SetPoint("LEFT", toLabel, "RIGHT", 10, 0)
-    Tip(tab.minLevel, "Lowest required level", "Default: 10 below yours. It follows you as you level.")
+    Tip(tab.minLevel, "Lowest required level", "Default: 10 below yours. It follows you as you level. Each character keeps its own range.")
     Tip(tab.maxLevel, "Highest required level",
         "Default: your level. Set it higher to shop ahead; gear you can't wear yet shows its level in red.")
 
@@ -835,6 +930,7 @@ function UI.Refresh()
     local Scanner = SD.Scanner
     local results = Scanner.Results()
 
+    tab.who:ShowChoice()
     tab.spec:ShowChoice()
     tab.sort:SetText(SD.db.sort == "value" and "Sort: upgrade per gold" or "Sort: biggest upgrade")
 

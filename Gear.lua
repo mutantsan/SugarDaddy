@@ -1,4 +1,5 @@
--- Gear.lua: the slots, what fits where, what you wear and what your class can use.
+-- Gear.lua: the slots, what fits where, what you wear and what your class can use. "You" is whom you shop for
+-- (SD.Who): yourself, or another of your characters.
 local _, SD = ...
 
 local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
@@ -56,8 +57,6 @@ for class, list in pairs(WEAPONS) do
     WEAPONS[class] = set
 end
 
-local myClass
-
 -- Slots as the list and the settings group them: both rings as one, both trinkets as one.
 Gear.GROUPS = {
     { 1, "Head" }, { 2, "Neck" }, { 3, "Shoulder" }, { 15, "Back" }, { 5, "Chest" }, { 9, "Wrist" },
@@ -94,9 +93,9 @@ end
 function Gear.Wearing(itemID, slots)
     for i = 1, #slots do
         local slot = slots[i]
-        if GetInventoryItemID("player", slot) == itemID then return true end
+        if SD.Who.EquippedID(slot) == itemID then return true end
         local pair = PAIR[slot]
-        if pair and GetInventoryItemID("player", pair) == itemID then return true end
+        if pair and SD.Who.EquippedID(pair) == itemID then return true end
     end
     return false
 end
@@ -107,7 +106,7 @@ function Gear.Usable(itemID, link, allowLower)
     local _, _, _, equipLoc, _, itemClass, subclass = GetItemInfoInstant(itemID)
     local _, _, _, _, required = GetItemInfo(link or itemID)
     if not (itemClass and required) then return nil end
-    myClass = myClass or select(2, UnitClass("player"))
+    local myClass = SD.Who.Class()
     if equipLoc == CLOAK then subclass = NO_ARMOR_TYPE end
     if itemClass == WEAPON_CLASS then return WEAPONS[myClass] ~= nil and WEAPONS[myClass][subclass] == true end
     if subclass == NO_ARMOR_TYPE then return true end

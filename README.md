@@ -25,6 +25,13 @@ each stat is worth to that spec; change any number or add stats you care about.
 Use [Pawn](https://www.curseforge.com/wow/addons/pawn)? The spec menu also lists the scales Pawn shows for your
 character, its defaults or your own. Pick one, edit its numbers in Pawn, and Sugar Daddy follows. Pawn is optional.
 
+### Shopping for another character
+
+The menu left of the spec menu picks whose gear you shop for: yourself, or any of your characters on this
+realm and faction. Pick your main from a bank character, scan, buy, and mail what you bought. Scores use that
+character's gear, bags, level and talents as it last saw them. A character shows up once it has logged in with
+Sugar Daddy, and its snapshot stays current as its gear changes.
+
 ### Settings
 
 The gear button: which slots to show, how many options per slot, minimum

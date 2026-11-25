@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- **Shop for another character.** A new menu left of the spec menu picks whose gear you shop for: yourself or
+  any of your characters on this realm and faction. Shop from a bank character, then mail the loot to your main.
+  Scores use that character's class, level, talents, gear, bags, stats and hit, as it last saw them.
+- Each character leaves a snapshot when it logs in, and the snapshot updates as its gear, bags, level or talents
+  change. A character shows up in the menu once it has logged in with Sugar Daddy.
+- The menu's tooltip says how old the snapshot is. **Forget a character** removes one.
+
+### Changed
+- The spec, Pawn scale and level range now belong to whom you shop for, so each character keeps its own. Your
+  current choices carry over.
+- Switching characters clears the list; scan again for the new one.
+- While shopping for someone else, the auction house's "usable only" filter is off (it goes by the logged-in
+  character); Sugar Daddy checks class and armor itself.
+
 ## 0.3.0
 
 ### Added

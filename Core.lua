@@ -17,13 +17,12 @@ local ACCOUNT_DEFAULTS = {
     lowerArmor = false,  -- also suggest armor types below your class's best (a hunter's leather)
     sort = "gain",       -- "gain" (biggest upgrade) or "value" (upgrade per gold)
     suffixBonus = {},    -- [auction house suffix id] = bonus IDs in item links ("1:12756"), learned from searches
+    chars = {},          -- ["Name-Realm"] = snapshot of each character and what you picked for it (see Profile.lua)
 }
+-- Spec, Pawn scale and level range belong to whom you shop for: SugarDaddyDB.chars[key].pick.
 local CHAR_DEFAULTS = {
-    spec = false,        -- picked spec key, false = automatic from talents
-    pawnScale = false,   -- a Pawn scale's internal name to take weights from, false = Sugar Daddy's own
     maxPrice = 0,        -- in copper, 0 = no limit
-    levelsBelow = 10,    -- scan required levels from (your level - levelsBelow)
-    levelsAbove = 0,     -- to (your level + levelsAbove); both follow you as you level
+    target = false,      -- "Name-Realm" of the character you shop for, false = yourself
 }
 
 local function Fill(db, defaults)

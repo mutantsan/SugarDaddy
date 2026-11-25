@@ -7,6 +7,7 @@ local GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
 local RequestLoad = C_Item and C_Item.RequestLoadItemDataByID
 local Gear = SD.Gear
+local Who = SD.Who
 
 local Scanner = {}
 SD.Scanner = Scanner
@@ -128,22 +129,16 @@ end
 -- The biggest upgrade per slot group among gear already in your bags (that you can wear now).
 local function BagBest(weights, power)
     local best = {}
-    local level = UnitLevel("player")
-    for bag = 0, NUM_BAG_SLOTS or 4 do
-        for bagSlot = 1, C_Container.GetContainerNumSlots(bag) do
-            local id = C_Container.GetContainerItemID(bag, bagSlot)
-            if id and Gear.SlotsFor(id) then
-                local link = C_Container.GetContainerItemLink(bag, bagSlot)
-                if Gear.Usable(id, link, SD.db.lowerArmor) and (Gear.RequiredLevel(link) or 0) <= level then
-                    local gain, points, slot = SD.BestGain(id, link, weights, power, SD.SlotAllowed)
-                    if gain and points > 0 then
-                        local group = Gear.GroupOf(slot)
-                        if not best[group] or points > best[group] then best[group] = points end
-                    end
-                end
+    local level = Who.Level()
+    Who.ForEachBagItem(function(id, link)
+        if Gear.SlotsFor(id) and Gear.Usable(id, link, SD.db.lowerArmor) and (Gear.RequiredLevel(link) or 0) <= level then
+            local gain, points, slot = SD.BestGain(id, link, weights, power, SD.SlotAllowed)
+            if gain and points > 0 then
+                local group = Gear.GroupOf(slot)
+                if not best[group] or points > best[group] then best[group] = points end
             end
         end
-    end
+    end)
     return best
 end
 
@@ -191,7 +186,7 @@ local function Resolve()
         local bonus = entry.unchecked and entry ~= deepBusy and known[tostring(entry.key.itemSuffix or 0)]
         if bonus and entry.triedBonus ~= bonus then
             local info = AH.GetItemKeyInfo and AH.GetItemKeyInfo(entry.key)
-            local link = ("item:%d::::::::%d::::%s"):format(entry.id, UnitLevel("player"), bonus)
+            local link = ("item:%d::::::::%d::::%s"):format(entry.id, Who.Level(), bonus)
             local name = GetItemInfo(link)
             local stats = name and info and info.itemName and SD.Stats(link)
             if stats then
@@ -319,7 +314,12 @@ function Scanner.Rescore()
     end
 end
 
+local function NoGearText()
+    return ("No gear saved for %s yet. Log in on %s once, then come back."):format(Who.Name(), Who.Name())
+end
+
 local function Summary()
+    if not Who.HasGear() then return NoGearText() end
     local loading = 0
     for _ in pairs(pendingRows) do loading = loading + 1 end
     local text = ("%d upgrade%s among %d items."):format(#results, #results == 1 and "" or "s", #entries)
@@ -508,29 +508,33 @@ local function Filters()
     for _, name in ipairs(QUALITIES) do
         if F[name] then list[#list + 1] = F[name] end
     end
-    -- "Usable only" may leave out gear above your level; class and armor checks happen here anyway.
+    -- "Usable only" may leave out gear above your level; class and armor checks happen here anyway. It goes by
+    -- the logged-in character, so it's left out while shopping for someone else.
     local _, maxLevel = Scanner.LevelRange()
-    if F.UsableOnly and maxLevel <= UnitLevel("player") then list[#list + 1] = F.UsableOnly end
+    if F.UsableOnly and Who.IsMe() and maxLevel <= UnitLevel("player") then list[#list + 1] = F.UsableOnly end
     return list
 end
 
 -- Required levels to scan: by default 10 below yours up to yours. Both ends follow you as you level.
 function Scanner.LevelRange()
-    local level = UnitLevel("player")
-    local maxLevel = level + math.max(0, SD.char.levelsAbove or 0)
-    local minLevel = math.max(1, level - (SD.char.levelsBelow or 10))
+    local level = Who.Level()
+    local pick = Who.Pick() or {}
+    local maxLevel = level + math.max(0, pick.levelsAbove or 0)
+    local minLevel = math.max(1, level - (pick.levelsBelow or 10))
     return math.min(minLevel, maxLevel), maxLevel
 end
 
 -- Set either end as an absolute level; the other end moves along if they would cross.
 function Scanner.SetLevelRange(minLevel, maxLevel)
-    local level = UnitLevel("player")
+    local pick = Who.Pick()
+    if not pick then return end
+    local level = Who.Level()
     local curMin, curMax = Scanner.LevelRange()
     minLevel, maxLevel = math.floor(minLevel or curMin), math.floor(maxLevel or curMax)
     maxLevel = math.max(maxLevel, level)
     minLevel = math.max(1, math.min(minLevel, maxLevel))
-    SD.char.levelsBelow = math.max(0, level - minLevel)
-    SD.char.levelsAbove = maxLevel - level
+    pick.levelsBelow = math.max(0, level - minLevel)
+    pick.levelsAbove = maxLevel - level
 end
 
 function Scanner.Start()
@@ -695,10 +699,28 @@ SD.On("AUCTION_HOUSE_CLOSED", function()
     if SD.UI then SD.UI.OnAuctionHouse(false) end
 end)
 
-SD.On("PLAYER_EQUIPMENT_CHANGED", RescoreSoon)
-SD.On("PLAYER_LEVEL_UP", RescoreSoon)
+-- Your own gear and level only matter while you shop for yourself.
+SD.On("PLAYER_EQUIPMENT_CHANGED", function() if Who.IsMe() then RescoreSoon() end end)
+SD.On("PLAYER_LEVEL_UP", function() if Who.IsMe() then RescoreSoon() end end)
 SD.On("BAG_UPDATE_DELAYED", function()
-    if SD.db and SD.db.checkBags then RescoreSoon() end
+    if SD.db and SD.db.checkBags and Who.IsMe() then RescoreSoon() end
+end)
+
+-- Another character to shop for: a new class and level range, so the old scan no longer applies.
+Who.OnChanged(function()
+    gen = gen + 1
+    wipe(entries)
+    wipe(results)
+    wipe(deepQueue)
+    wipe(pendingRows)
+    wipe(readyIDs)
+    deepBusy = nil
+    stopped = false
+    phase = "idle"
+    if SD.UI and SD.UI.ResetScroll then SD.UI.ResetScroll() end
+    local whom = Who.IsMe() and "yourself" or Who.Name()
+    if not Who.HasGear() then return Status(NoGearText()) end
+    Status(("Shopping for %s. Press Scan%s."):format(whom, ahOpen and "" or " at the auction house"))
 end)
 SD.OnWeightsChanged(RescoreSoon)
 

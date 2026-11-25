@@ -129,17 +129,18 @@ for _, stat in ipairs(SD.STATS) do STAT_NAME[stat[1]] = stat[2] end
 local byKey = {}
 for _, spec in ipairs(SD.SPECS) do byKey[spec.key] = spec end
 
-local classSpecs
+local classSpecs, specsClass
 local talentSpec, talentRead = nil, false
 local merged
 local listeners = {}
 
 function SD.StatName(stat) return STAT_NAME[stat] or stat end
 
+-- The specs of the class you shop for.
 function SD.ClassSpecs()
-    if not classSpecs then
-        classSpecs = {}
-        local _, class = UnitClass("player")
+    local class = SD.Who.Class()
+    if not classSpecs or specsClass ~= class then
+        classSpecs, specsClass = {}, class
         for _, spec in ipairs(SD.SPECS) do
             if spec.class == class then classSpecs[#classSpecs + 1] = spec end
         end
@@ -204,10 +205,12 @@ SD.On("TRAIT_CONFIG_UPDATED", TalentsChanged)
 SD.On("CHARACTER_POINTS_CHANGED", TalentsChanged)
 SD.On("PLAYER_TALENT_UPDATE", TalentsChanged)
 
+-- The spec you shop for: the one picked for this character, else the one its talents point to.
 function SD.ActiveSpec()
-    local picked = SD.char and SD.char.spec
+    local pick = SD.Who.Pick()
+    local picked = pick and pick.spec
     if picked and byKey[picked] then return picked end
-    local talents = SD.TalentSpec()
+    local talents = SD.Who.TalentSpec()
     if talents then return talents end
     local mine = SD.ClassSpecs()
     return mine[1] and mine[1].key
@@ -301,9 +304,11 @@ end
 -- Picking one of our specs also leaves any Pawn scale. Picking the spec your talents point to stores "follow
 -- talents" (false), so a respec still switches it; only a different spec is pinned.
 function SD.PickSpec(key)
-    if key == SD.TalentSpec() then key = false end
-    SD.char.spec = key or false
-    SD.char.pawnScale = false
+    local pick = SD.Who.Pick()
+    if not pick then return end
+    if key == SD.Who.TalentSpec() then key = false end
+    pick.spec = key or false
+    pick.pawnScale = false
     Changed()
 end
 

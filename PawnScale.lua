@@ -34,7 +34,8 @@ end
 
 -- The picked scale's internal name, while Pawn still has it.
 function PawnScale.Picked()
-    local name = SD.char and SD.char.pawnScale
+    local pick = SD.Who.Pick()
+    local name = pick and pick.pawnScale
     return Scale(name) and name or nil
 end
 
@@ -57,14 +58,26 @@ function PawnScale.ShortName(name)
     return label
 end
 
--- The scales Pawn shows for this character (its "active scales"), in Pawn's own order.
+-- Is the scale one Pawn shows for the character you shop for? Pawn answers for whoever is logged in; for
+-- someone else its per-character settings say, and Pawn's default scales for that class count too.
+local function Visible(info)
+    if SD.Who.IsMe() then return info.IsVisible end
+    local scale = PawnCommon.Scales[info.Name]
+    if not scale then return false end
+    local rec = SD.Who.Record()
+    local own = rec.pawnName and scale.PerCharacterOptions and scale.PerCharacterOptions[rec.pawnName]
+    if own then return own.Visible == true end
+    return scale.Provider ~= nil and scale.ClassID == SD.Who.ClassID()
+end
+
+-- The scales Pawn shows for the character you shop for (its "active scales"), in Pawn's own order.
 function PawnScale.List()
     local out = {}
     if not Ready() then return out end
     local ok, all = pcall(PawnGetAllScalesEx)
     if not ok or type(all) ~= "table" then return out end
     for _, info in ipairs(all) do
-        if info.IsVisible then out[#out + 1] = { name = info.Name, label = PawnScale.ShortName(info.Name) } end
+        if Visible(info) then out[#out + 1] = { name = info.Name, label = PawnScale.ShortName(info.Name) } end
     end
     return out
 end
@@ -86,7 +99,7 @@ function PawnScale.Weights()
         if v ~= 0 then weights[mine] = v end
     end
     -- Pawn splits weapon dps into any weapon (Dps) plus melee or ranged; ours is one number per spec.
-    local hunter = select(2, UnitClass("player")) == "HUNTER"
+    local hunter = SD.Who.Class() == "HUNTER"
     local dps = Number(values, "Dps") + Number(values, hunter and "RangedDps" or "MeleeDps")
     if dps ~= 0 then weights.dps = dps end
     -- Retail-style combined spell power, when a custom scale uses it instead of spell damage and healing.
@@ -99,7 +112,9 @@ function PawnScale.Weights()
 end
 
 function PawnScale.Pick(name)
-    SD.char.pawnScale = name or false
+    local pick = SD.Who.Pick()
+    if not pick then return end
+    pick.pawnScale = name or false
     SD.WeightsChanged()
 end
 
@@ -111,5 +126,8 @@ end
 
 -- Pawn finishes setting up its scales after login; read them again then.
 SD.On("PLAYER_ENTERING_WORLD", function()
-    C_Timer.After(1, function() if SD.char and SD.char.pawnScale then SD.WeightsChanged() end end)
+    C_Timer.After(1, function()
+        local pick = SD.Who.Pick()
+        if pick and pick.pawnScale then SD.WeightsChanged() end
+    end)
 end)

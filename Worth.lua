@@ -28,15 +28,13 @@ local statsOf = {}
 local hitGear, hitNow = { [HIT] = 0, [SPELL_HIT] = 0 }, { [HIT] = 0, [SPELL_HIT] = 0 }
 local lastPower
 local partners
-local myClass
+local Who = SD.Who
 
-local function Class()
-    myClass = myClass or select(2, UnitClass("player"))
-    return myClass
-end
+local function Class() return Who.Class() end
 
+-- Your own stats can be secret (in combat on Forever); another character's are a snapshot and never are.
 local function Secret()
-    return C_Secrets and C_Secrets.ShouldUnitStatsBeSecret and C_Secrets.ShouldUnitStatsBeSecret()
+    return Who.IsMe() and C_Secrets and C_Secrets.ShouldUnitStatsBeSecret and C_Secrets.ShouldUnitStatsBeSecret()
 end
 
 -- Forget cached stats and the bag partners: on equipment changes and at each scan.
@@ -46,6 +44,7 @@ function SD.Forget()
 end
 SD.On("PLAYER_EQUIPMENT_CHANGED", SD.Forget)
 SD.On("BAG_UPDATE_DELAYED", function() partners = nil end)
+Who.OnChanged(function() lastPower = nil end)
 
 -- The item's stats, or nil while its data loads (it is asked for).
 function SD.Stats(item)
@@ -94,7 +93,7 @@ function SD.Worth(stats, weights, dpsShare, skipPrimary)
 end
 
 local function WornWorth(slot, weights)
-    local link = GetInventoryItemLink("player", slot)
+    local link = Who.Equipped(slot)
     if not link then return 0 end
     local worn = SD.Stats(link)
     return worn and SD.Worth(worn, weights, SD.DpsShare(slot))
@@ -108,7 +107,7 @@ local function HitOf(stats, kind)
 end
 
 local function WornHit(slot, kind)
-    local link = slot and GetInventoryItemLink("player", slot)
+    local link = slot and Who.Equipped(slot)
     local worn = link and SD.Stats(link)
     return worn and HitOf(worn, kind) or 0
 end
@@ -124,29 +123,20 @@ local function CountedHit(from, delta, cap, capAfter)
     return math.min(from + delta, capAfter or cap) - math.min(from, cap)
 end
 
-local function RatingBonus(cr)
-    return (GetCombatRatingBonus and cr and GetCombatRatingBonus(cr)) or 0
-end
-
 local function ReadHit()
     hitGear[HIT], hitGear[SPELL_HIT] = 0, 0
     for _, slot in ipairs(Gear.SLOTS) do
-        local link = GetInventoryItemLink("player", slot)
+        local link = Who.Equipped(slot)
         local stats = link and SD.Stats(link)
         if stats then
             for _, kind in ipairs(HIT_KINDS) do hitGear[kind] = hitGear[kind] + HitOf(stats, kind) end
         end
     end
-    if Class() == HUNTER then
-        hitNow[HIT] = RatingBonus(CR_HIT_RANGED) + ((GetRangedHitModifier and GetRangedHitModifier()) or 0)
-    else
-        hitNow[HIT] = RatingBonus(CR_HIT_MELEE) + ((GetHitModifier and GetHitModifier()) or 0)
-    end
-    hitNow[SPELL_HIT] = RatingBonus(CR_HIT_SPELL) + ((GetSpellHitModifier and GetSpellHitModifier()) or 0)
+    hitNow[HIT], hitNow[SPELL_HIT] = Who.HitNow(HIT), Who.HitNow(SPELL_HIT)
 end
 
 local function HitBeyondCap(weights, stats, item, slot, also)
-    local off = GetInventoryItemID("player", OFF_HAND)
+    local off = Who.EquippedID(OFF_HAND)
     local offAfter = off
     if slot == OFF_HAND then
         offAfter = GetItemInfoInstant(item)
@@ -169,14 +159,14 @@ end
 function SD.Power(weights)
     if Secret() then return lastPower end
     local power = 0
-    for i, key in ipairs(PRIMARY) do power = power + (weights[key] or 0) * select(2, UnitStat("player", i)) end
+    for i, key in ipairs(PRIMARY) do power = power + (weights[key] or 0) * Who.BaseStat(i) end
     for _, slot in ipairs(Gear.SLOTS) do
-        local link = GetInventoryItemLink("player", slot)
+        local link = Who.Equipped(slot)
         local stats = link and SD.Stats(link)
         if stats then power = power + SD.Worth(stats, weights, SD.DpsShare(slot), true) end
     end
     ReadHit()
-    local off = GetInventoryItemID("player", OFF_HAND)
+    local off = Who.EquippedID(OFF_HAND)
     for _, kind in ipairs(HIT_KINDS) do
         local gear = hitGear[kind]
         power = power + (weights[kind] or 0) * (CountedHit(hitNow[kind] - gear, gear, HitCap(kind, off)) - gear)
@@ -189,28 +179,24 @@ end
 local function BagPartners(weights)
     if partners and partners.weights == weights then return partners end
     partners = { weights = weights, [MAIN_HAND] = {}, [OFF_HAND] = {} }
-    local dualWield = CanDualWield and CanDualWield()
-    for bag = 0, NUM_BAG_SLOTS or 4 do
-        for bagSlot = 1, C_Container.GetContainerNumSlots(bag) do
-            local id = C_Container.GetContainerItemID(bag, bagSlot)
-            local slots = id and Gear.SlotsFor(id)
-            if slots and Gear.OtherHand(slots[1]) and not Gear.IsTwoHand(id) then
-                local link = C_Container.GetContainerItemLink(bag, bagSlot)
-                local stats = Gear.Usable(id, link, SD.db.lowerArmor) and SD.Stats(link)
-                if stats then
-                    for _, slot in ipairs(slots) do
-                        if dualWield or not Gear.NeedsDualWield(id, slot) then
-                            local worth = SD.Worth(stats, weights, SD.DpsShare(slot))
-                            local hand = partners[slot]
-                            if not hand.worth or worth > hand.worth then
-                                hand.id, hand.link, hand.worth = id, link, worth
-                            end
+    local dualWield = Who.CanDualWield()
+    Who.ForEachBagItem(function(id, link)
+        local slots = Gear.SlotsFor(id)
+        if slots and Gear.OtherHand(slots[1]) and not Gear.IsTwoHand(id) then
+            local stats = Gear.Usable(id, link, SD.db.lowerArmor) and SD.Stats(link)
+            if stats then
+                for _, slot in ipairs(slots) do
+                    if dualWield or not Gear.NeedsDualWield(id, slot) then
+                        local worth = SD.Worth(stats, weights, SD.DpsShare(slot))
+                        local hand = partners[slot]
+                        if not hand.worth or worth > hand.worth then
+                            hand.id, hand.link, hand.worth = id, link, worth
                         end
                     end
                 end
             end
         end
-    end
+    end)
     return partners
 end
 
@@ -233,9 +219,9 @@ function SD.BestGain(id, link, weights, power, allowed)
     local slots = Gear.SlotsFor(id)
     if not slots or Gear.Wearing(id, slots) then return nil end
     local twoHand = Gear.IsTwoHand(id)
-    local main = GetInventoryItemID("player", MAIN_HAND)
+    local main = Who.EquippedID(MAIN_HAND)
     local wornTwoHand = main ~= nil and Gear.IsTwoHand(main)
-    local dualWield = CanDualWield and CanDualWield()
+    local dualWield = Who.CanDualWield()
     local best, points, bestSlot, partner, replaced, bestAlso
     for _, slot in ipairs(slots) do
         if (not allowed or allowed(slot)) and (dualWield or not Gear.NeedsDualWield(id, slot)) then
