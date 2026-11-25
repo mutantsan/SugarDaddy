@@ -20,6 +20,7 @@ local ACCOUNT_DEFAULTS = {
 }
 local CHAR_DEFAULTS = {
     spec = false,        -- picked spec key, false = automatic from talents
+    pawnScale = false,   -- a Pawn scale's internal name to take weights from, false = Sugar Daddy's own
     maxPrice = 0,        -- in copper, 0 = no limit
     levelsBelow = 10,    -- scan required levels from (your level - levelsBelow)
     levelsAbove = 0,     -- to (your level + levelsAbove); both follow you as you level

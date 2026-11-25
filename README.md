@@ -22,6 +22,10 @@ each stat is worth to that spec; change any number or add stats you care about.
 
 ![Weights](media/weights.png)
 
+Use [Pawn](https://www.curseforge.com/wow/addons/pawn)? The **Source** button in the Weights panel switches to
+any scale Pawn shows for your character, its defaults or your own. Edit the numbers in Pawn and Sugar Daddy
+follows. Pawn is optional.
+
 ### Settings
 
 The gear button: which slots to show, how many options per slot, minimum

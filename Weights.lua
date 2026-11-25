@@ -223,8 +223,16 @@ function SD.SpecDefault(stat, key)
     return spec and spec.weights[stat] or 0
 end
 
--- The spec's weights with your changes.
+-- True while a Pawn scale supplies the weights (edit them in Pawn then).
+local function FromPawn() return SD.PawnScale and SD.PawnScale.Active() end
+SD.WeightsFromPawn = FromPawn
+
+-- The spec's weights with your changes, or the picked Pawn scale's.
 function SD.BaseWeights()
+    if FromPawn() then
+        local fromPawn = SD.PawnScale.Weights()
+        if fromPawn then return fromPawn end
+    end
     local key = SD.ActiveSpec()
     local spec = byKey[key]
     local weights = {}
@@ -248,8 +256,10 @@ local function Changed()
 end
 
 function SD.OnWeightsChanged(fn) listeners[#listeners + 1] = fn end
+SD.WeightsChanged = Changed
 
 function SD.SetWeight(stat, worth)
+    if FromPawn() then return end
     local key = SD.ActiveSpec()
     if not (key and STAT_NAME[stat]) then return end
     local own = SD.db.weights[key] or {}
@@ -260,11 +270,13 @@ function SD.SetWeight(stat, worth)
 end
 
 function SD.WeightChanged(stat)
+    if FromPawn() then return false end
     local own = SD.db.weights[SD.ActiveSpec()]
     return own ~= nil and own[stat] ~= nil
 end
 
 function SD.ResetWeights()
+    if FromPawn() then return end
     local key = SD.ActiveSpec()
     SD.db.weights[key] = nil
     SD.db.shownStats[key] = nil
@@ -278,6 +290,7 @@ function SD.StatShown(stat)
 end
 
 function SD.ShowStat(stat)
+    if FromPawn() then return end
     local key = SD.ActiveSpec()
     if not (key and STAT_NAME[stat]) or SD.StatShown(stat) then return end
     SD.db.shownStats[key] = SD.db.shownStats[key] or {}

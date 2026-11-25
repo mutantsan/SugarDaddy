@@ -304,9 +304,18 @@ local function UsedStats()
     return used, base
 end
 
+local HINT_OWN = "Worth of 1 point (or 1%). 0 ignores a stat."
+local HINT_PAWN = "From Pawn, read-only here. Edit the scale in Pawn (/pawn)."
+
 local function RefreshWeights()
     if not (weights and weights:IsShown()) then return end
-    weights.title:SetText("Weights: " .. SD.SpecName())
+    local pawn = SD.WeightsFromPawn()
+    local Pawn = SD.PawnScale
+    weights.title:SetText(pawn and ("Pawn: " .. (Pawn.Name() or "?")) or ("Weights: " .. SD.SpecName()))
+    weights.hint:SetText(pawn and HINT_PAWN or HINT_OWN)
+    weights.source:SetShown(Pawn ~= nil and Pawn.Available())
+    weights.source:SetText(pawn and "Source: Pawn" or "Source: Sugar Daddy")
+    weights.reset:SetEnabled(not pawn)
     local used, base = UsedStats()
     for i, line in ipairs(weightLines) do
         local stat = used[i]
@@ -315,12 +324,14 @@ local function RefreshWeights()
             local changed = SD.WeightChanged(stat)
             line.label:SetText((changed and "|cffffd100" or "|cffffffff") .. (SHORT_STAT[stat] or SD.StatName(stat)) .. "|r")
             SetIfIdle(line.edit, tostring(base[stat] or 0))
+            line.edit:SetEnabled(not pawn)
+            line.edit:SetTextColor(pawn and 0.6 or 1, pawn and 0.6 or 1, pawn and 0.6 or 1)
             line:Show()
         else
             line:Hide()
         end
     end
-    weights.add:SetEnabled(#used < #SD.STATS and #used < #weightLines)
+    weights.add:SetEnabled(not pawn and #used < #SD.STATS and #used < #weightLines)
     if picker and picker:IsShown() then picker:Fill(used) end
 end
 
@@ -396,8 +407,38 @@ local function BuildWeights()
     weights:SetWidth(WEIGHTS_W)
     weights.title = Label(weights, "Weights", "GameFontNormal")
     weights.title:SetPoint("TOPLEFT", 10, -8)
-    local hint = Label(weights, "Worth of 1 point (or 1%). 0 ignores a stat.", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", 10, -26)
+    weights.title:SetPoint("RIGHT", -150, 0)
+    weights.title:SetJustifyH("LEFT")
+    weights.title:SetWordWrap(false)
+    weights.hint = Label(weights, HINT_OWN, "GameFontDisableSmall")
+    weights.hint:SetPoint("TOPLEFT", 10, -26)
+    -- Where the numbers come from: our own per-spec weights, or one of your Pawn scales.
+    weights.source = Button(weights, "", 136, function(_, mouse)
+        if picker then picker:Hide() end
+        if mouse == "RightButton" then SD.PawnScale.Pick(nil) else SD.PawnScale.Next() end
+    end)
+    weights.source:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    weights.source:SetPoint("TOPRIGHT", -8, -5)
+    weights.source:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Weights source", 1, 1, 1)
+        GameTooltip:AddLine("Click to step through the scales Pawn shows for this character, then back to "
+            .. "Sugar Daddy's own. Right-click for Sugar Daddy's own.", nil, nil, nil, true)
+        local list = SD.PawnScale.List()
+        if #list == 0 then
+            GameTooltip:AddLine("Pawn has no scales turned on for this character yet.", 1, 0.5, 0.25, true)
+        else
+            GameTooltip:AddLine(" ")
+            local picked = SD.PawnScale.Picked()
+            for _, info in ipairs(list) do
+                local on = info.name == picked
+                GameTooltip:AddLine((on and "> " or "   ") .. info.label, on and 0.2 or 0.8, on and 1 or 0.8, on and 0.2 or 0.8)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    weights.source:SetScript("OnLeave", GameTooltip_Hide)
+    weights.source:Hide()
     local colW = (WEIGHTS_W - 20) / WEIGHT_COLS
     for i = 1, WEIGHT_COLS * WEIGHT_ROWS do
         local col, r = math.floor((i - 1) / WEIGHT_ROWS), (i - 1) % WEIGHT_ROWS
@@ -419,11 +460,11 @@ local function BuildWeights()
         line.edit:SetPoint("RIGHT", 0, 0)
         weightLines[i] = line
     end
-    local reset = Button(weights, "Reset to defaults", 130, function()
+    weights.reset = Button(weights, "Reset to defaults", 130, function()
         if picker then picker:Hide() end
         SD.ResetWeights()
     end)
-    reset:SetPoint("BOTTOMLEFT", 8, 10)
+    weights.reset:SetPoint("BOTTOMLEFT", 8, 10)
     weights.add = Button(weights, "Add stat", 100, TogglePicker)
     weights.add:SetPoint("BOTTOMRIGHT", -8, 10)
     weights:SetScript("OnHide", function() if picker then picker:Hide() end end)

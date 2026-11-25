@@ -2,15 +2,17 @@
 ## Title: |cffff69b4Sugar Daddy|r
 ## Notes: Scans the auction house for gear at your level, weighs it by your stat priorities and tells you the best upgrade you can afford.
 ## Author: mutantsan
-## Version: 0.2.0
+## Version: 0.3.0
 ## SavedVariables: SugarDaddyDB
 ## SavedVariablesPerCharacter: SugarDaddyCharDB
+## OptionalDeps: Pawn
 ## IconTexture: Interface\AddOns\SugarDaddy\media\icon
 
 Libs\LibStub\LibStub.lua
 Libs\LibAHTab\LibAHTab.lua
 Core.lua
 Weights.lua
+PawnScale.lua
 Gear.lua
 Worth.lua
 Scanner.lua
