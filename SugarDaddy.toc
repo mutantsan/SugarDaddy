@@ -2,7 +2,7 @@
 ## Title: |cffff69b4Sugar Daddy|r
 ## Notes: Scans the auction house for gear at your level, weighs it by your stat priorities and tells you the best upgrade you can afford.
 ## Author: mutantsan
-## Version: 0.5.1
+## Version: 0.5.2
 ## SavedVariables: SugarDaddyDB
 ## SavedVariablesPerCharacter: SugarDaddyCharDB
 ## OptionalDeps: Pawn

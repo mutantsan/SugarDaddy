@@ -170,9 +170,6 @@ local function RowTip(row)
         local who = Who.IsMe() and "You" or Who.Name()
         GameTooltip:AddLine(("%s can wear it at level %d."):format(who, result.entry.required), 1, 0.25, 0.25)
     end
-    GameTooltip:AddLine(result.entry.perListing and "Price of this exact listing (its suffix varies by listing)." or "Cheapest listing.",
-        0.6, 0.6, 0.6)
-    GameTooltip:AddLine("Points: the item's stats added up with your spec's weights (see Weights).", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 

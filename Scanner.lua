@@ -98,7 +98,9 @@ end
 -- (the game's tooltip link for a key leaves it out), so suffix items are weighed by a learned link (see Resolve)
 -- or listing by listing.
 local function KeyLink(key)
-    return "item:" .. key.itemID
+    -- With the level of whom you shop for written in: scaling gear takes its stats and item level from it, and a
+    -- link without one is read at the logged-in character's level.
+    return ("item:%d::::::::%d"):format(key.itemID, math.max(1, Who.Level() or 1))
 end
 
 -- The auction house allows so many messages; run fn once it's ready again.
@@ -229,8 +231,9 @@ end
 -- Most a hidden suffix could add to this item, in score points.
 local function SuffixMax(entry, perBudget)
     local _, _, _, equipLoc = GetItemInfoInstant(entry.id)
-    local _, _, _, itemLevel = GetItemInfo(entry.link)
-    itemLevel = itemLevel or entry.key.itemLevel or 0
+    -- The auction house knows the listings' real item level; the link's is only a fallback.
+    local itemLevel = entry.key.itemLevel
+    if not itemLevel or itemLevel <= 1 then itemLevel = select(4, GetItemInfo(entry.link)) or 0 end
     local value
     if entry.quality >= 4 then
         value = (itemLevel - 1.3) / 1.3
@@ -242,28 +245,29 @@ local function SuffixMax(entry, perBudget)
     return SUFFIX_HEADROOM * math.max(value, 1) * (SLOT_BUDGET[equipLoc] or 1) * perBudget
 end
 
--- Queue the suffix items still worth a search, most promising first. Items that can't pass the filters or beat
--- your gear even with the best suffix wait; they get queued if settings, weights or gear change.
-local function Plan(weights, power, inBags)
+-- Queue the suffix items that pass the filters, most promising first. Settings, weights or gear changing later
+-- queue the ones not searched yet.
+local function Plan(weights, power)
     wipe(deepQueue)
     if stopped or not SD.db.deepScan then return end
     local perBudget = SuffixWorth(weights)
     local maxPrice = SD.char.maxPrice or 0
     local byValue = SD.db.sort == "value"
-    local minUpgrade = SD.db.minUpgrade or 0
     local minQuality = SD.db.minQuality or 0
     local lowerArmor = SD.db.lowerArmor
     for _, entry in ipairs(entries) do
         if entry.unchecked and entry ~= deepBusy and entry.quality >= minQuality
             and (lowerArmor or not entry.lowerArmor) and (maxPrice == 0 or entry.minPrice <= maxPrice) then
-            local _, points, slot = SD.BestGain(entry.id, entry.link, weights, power, SD.SlotAllowed)
-            if points then
-                local bound = points + SuffixMax(entry, perBudget)
-                if bound > 0 and 100 * bound / power >= MIN_GAIN and bound >= minUpgrade
-                    and not (inBags and (inBags[Gear.GroupOf(slot)] or 0) >= bound) then
-                    entry.priority = byValue and bound / math.max(entry.minPrice, 1) or bound
-                    deepQueue[#deepQueue + 1] = entry
-                end
+            -- Every suffix item in a slot you show gets searched; the best possible suffix only sets the order.
+            local shown = false
+            for _, slot in ipairs(Gear.SlotsFor(entry.id) or {}) do
+                if SD.SlotAllowed(slot) then shown = true end
+            end
+            if shown then
+                local _, points = SD.BestGain(entry.id, entry.link, weights, power, SD.SlotAllowed)
+                local bound = (points or 0) + SuffixMax(entry, perBudget)
+                entry.priority = byValue and bound / math.max(entry.minPrice, 1) or bound
+                deepQueue[#deepQueue + 1] = entry
             end
         end
     end
@@ -284,7 +288,7 @@ function Scanner.Rescore()
             local minQuality = SD.db.minQuality or 0
             local lowerArmor = SD.db.lowerArmor
             local inBags = SD.db.checkBags and BagBest(weights, power) or nil
-            Plan(weights, power, inBags)
+            Plan(weights, power)
             planned = true
             for _, entry in ipairs(entries) do
                 local best

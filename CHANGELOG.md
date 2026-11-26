@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.2
+
+### Fixed
+- Shopping from a low-level character (say a level 1 bank alt) weighed scaling gear at that character's level:
+  the auction house writes the viewer's level into item links. Links are now weighed at the level of whom you
+  shop for, and the best possible suffix uses the auction house's item level.
+
+### Changed
+- Every item with a suffix in a slot you show is now searched. Before, items whose best possible suffix
+  couldn't reach "Hide upgrades under" were skipped, and a wrong guess could hide a real upgrade.
+
 ## 0.5.1
 
 ### Changed

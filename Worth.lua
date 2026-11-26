@@ -47,8 +47,21 @@ SD.On("BAG_UPDATE_DELAYED", function() partners = nil end)
 Who.OnChanged(function() lastPower = nil end)
 
 -- The item's stats, or nil while its data loads (it is asked for).
+-- Scaling gear (modifier 28 in the link) gets its stats from the level written in the link, and the auction house
+-- writes the viewer's level there. Weigh every link at the level of whom you shop for: a listing seen from a
+-- level 1 bank character would otherwise come out with level 1 stats.
+-- item:id:enchant:gem1:gem2:gem3:gem4:suffix:unique:LEVEL:...
+local BEFORE_LEVEL = "^(.-item" .. (":[^:]*"):rep(8) .. ":)%d+(.*)$"
+
+local function AtLevel(link, level)
+    local before, after = link:match(BEFORE_LEVEL)
+    return before and (before .. level .. after) or link
+end
+
 function SD.Stats(item)
-    local stats = statsOf[item]
+    local level = type(item) == "string" and Who.Level()
+    local cacheKey = level and (item .. "@" .. level) or item
+    local stats = statsOf[cacheKey]
     if stats then return stats end
     local id = type(item) == "number" and item or GetItemInfoInstant(item)
     if not id then return nil end
@@ -56,8 +69,10 @@ function SD.Stats(item)
         if RequestLoad then RequestLoad(id) end
         return nil
     end
-    stats = GetItemStats(type(item) == "number" and ("item:" .. item) or item) or {}
-    statsOf[item] = stats
+    local link = type(item) == "number" and ("item:" .. item) or item
+    if level and level > 0 then link = AtLevel(link, level) end
+    stats = GetItemStats(link) or {}
+    statsOf[cacheKey] = stats
     return stats
 end
 
