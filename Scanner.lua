@@ -143,54 +143,63 @@ local function BagBest(weights, power)
 end
 
 -- Suffixes without searching ------------------------------------------------------------------------------------
--- The auction house names a suffix by its own id; item links carry it as bonus IDs. Each search shows both, so the
--- pair is remembered, and later items with that suffix get their link built and weighed right away. A built link
--- is only trusted when its name matches the auction house's name for the item ("Elder's Cloak of the Champion").
+-- The auction house names a suffix by its own id; the listings' links carry it as bonus IDs, plus modifiers that
+-- change the suffix's stats from item to item (a link built from the bonus IDs alone can show several times the
+-- real healing). So each search remembers the exact link of that item with that suffix, and the next scan weighs
+-- it right away. Only learned when all its listings have the same stats.
 
 local function LinkFields(link)
     local itemString = link and link:match("item:([%-%d:]+)")
     if not itemString then return nil end
     local fields = {}
     for field in (itemString .. ":"):gmatch("([^:]*):") do fields[#fields + 1] = field end
-    return fields
+    return fields, itemString
 end
 
--- "1:12756": the bonus count and IDs of a link (fields 13 on), or nil when it has none.
-local function BonusOf(link)
+-- True when the link carries bonus IDs (fields 13 on).
+local function HasBonus(link)
     local fields = LinkFields(link)
     local count = fields and tonumber(fields[13])
-    if not count or count < 1 then return nil end
-    local parts = { count }
-    for i = 1, count do
-        if not tonumber(fields[13 + i]) then return nil end
-        parts[#parts + 1] = fields[13 + i]
-    end
-    return table.concat(parts, ":")
+    return count ~= nil and count >= 1 and tonumber(fields[14]) ~= nil
 end
 
+-- Item, suffix and item level: the auction house lists one item at several levels apart.
+local function SuffixKey(entry)
+    return entry.id .. ":" .. (entry.key.itemSuffix or 0) .. ":" .. (entry.key.itemLevel or 0)
+end
+
+local function SameStats(a, b)
+    for key, value in pairs(a) do if b[key] ~= value then return false end end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
+
+-- Remembered when every listing has the same stats; their links may still differ in fields that change nothing.
 local function Learn(entry)
-    local suffix = entry.key.itemSuffix or 0
-    if suffix == 0 or not entry.listings[1] then return end
-    local bonus = BonusOf(entry.listings[1].link)
-    if not bonus then return end
-    for _, listing in ipairs(entry.listings) do
-        if BonusOf(listing.link) ~= bonus then return end
+    if (entry.key.itemSuffix or 0) == 0 or not entry.listings[1] then return end
+    local first = entry.listings[1].link
+    if not HasBonus(first) then return end
+    local stats = SD.Stats(first)
+    if not stats then return end
+    for i = 2, #entry.listings do
+        local other = SD.Stats(entry.listings[i].link)
+        if not (other and SameStats(stats, other)) then return end
     end
-    SD.db.suffixBonus[tostring(suffix)] = bonus
+    local _, itemString = LinkFields(first)
+    SD.db.suffixLinks[SuffixKey(entry)] = "item:" .. itemString
 end
 
--- Weigh suffix items whose suffix is already known by a built link instead of a search.
+-- Weigh suffix items seen in an earlier search by their learned link instead of a new search.
 local function Resolve()
-    local known = SD.db.suffixBonus
+    local known = SD.db.suffixLinks
     for _, entry in ipairs(entries) do
-        local bonus = entry.unchecked and entry ~= deepBusy and known[tostring(entry.key.itemSuffix or 0)]
-        if bonus and entry.triedBonus ~= bonus then
+        local link = entry.unchecked and entry ~= deepBusy and known[SuffixKey(entry)]
+        if link and entry.triedLink ~= link then
             local info = AH.GetItemKeyInfo and AH.GetItemKeyInfo(entry.key)
-            local link = ("item:%d::::::::%d::::%s"):format(entry.id, Who.Level(), bonus)
             local name = GetItemInfo(link)
             local stats = name and info and info.itemName and SD.Stats(link)
             if stats then
-                entry.triedBonus = bonus   -- checked once; a mismatch leaves it to a search
+                entry.triedLink = link   -- checked once; a mismatch leaves it to a search
                 if name == info.itemName and SD.HasRealStats(stats) then
                     entry.unchecked, entry.perListing = nil, nil
                     entry.listings[1] = { link = link, price = entry.minPrice }
@@ -508,7 +517,8 @@ local function Filters()
     return list
 end
 
--- Required levels to scan: by default 10 below yours up to yours. Both ends follow you as you level.
+-- Required levels to scan: by default 10 below yours up to yours. Both ends follow you as you level; the lowest
+-- may sit above your level to shop ahead.
 function Scanner.LevelRange()
     local level = Who.Level()
     local pick = Who.Pick() or {}
@@ -523,10 +533,13 @@ function Scanner.SetLevelRange(minLevel, maxLevel)
     if not pick then return end
     local level = Who.Level()
     local curMin, curMax = Scanner.LevelRange()
-    minLevel, maxLevel = math.floor(minLevel or curMin), math.floor(maxLevel or curMax)
-    maxLevel = math.max(maxLevel, level)
-    minLevel = math.max(1, math.min(minLevel, maxLevel))
-    pick.levelsBelow = math.max(0, level - minLevel)
+    local setMin = minLevel ~= nil
+    minLevel = math.max(1, math.floor(minLevel or curMin))
+    maxLevel = math.max(level, math.floor(maxLevel or curMax))
+    if minLevel > maxLevel then
+        if setMin then maxLevel = minLevel else minLevel = maxLevel end
+    end
+    pick.levelsBelow = level - minLevel   -- negative: the range starts above your level
     pick.levelsAbove = maxLevel - level
 end
 
@@ -598,7 +611,18 @@ local function ReadBuy()
     end
     buy.state = "confirm"
     buy.auctionID, buy.price, buy.link = pick.auctionID, pick.buyoutAmount, pick.itemLink
-    local what = ("%s\n|cff20ff20+%.1f gear score|r"):format(pick.itemLink, result.points)
+    -- Weigh the listing actually bought, not the row's link: they can differ for items with suffixes.
+    local points = result.points
+    if pick.itemLink ~= wanted.link then
+        local weights = SD.Weights()
+        local power = SD.Power(weights)
+        local _, real = SD.BestGain(entry.id, pick.itemLink, weights, power, SD.SlotAllowed)
+        if real then points = real end   -- nil while its data loads: keep the row's
+        if not entry.perListing then entry.listings[1] = { link = pick.itemLink, price = pick.buyoutAmount } end
+    end
+    local gainText = points and points > 0 and ("|cff20ff20+%.1f points|r"):format(points)
+        or "|cffff4040Not an upgrade after all.|r"
+    local what = ("%s\n%s"):format(pick.itemLink, gainText)
     StaticPopup_Show("SUGARDADDY_BUY", what, SD.Money(pick.buyoutAmount))
 end
 

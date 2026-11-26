@@ -29,7 +29,7 @@ local GOLD = "|cffffd100"
 local RED = "|cffff4040"
 local INDENT = 14
 
--- Gear score numbers: one decimal, without a trailing ".0".
+-- Point numbers: one decimal, without a trailing ".0".
 local function Score(value)
     return (("%.1f"):format(value):gsub("%.0$", ""))
 end
@@ -98,6 +98,7 @@ local function Check(parent, text, onClick)
     c:SetSize(24, 24)
     c.label = Label(c, text, "GameFontHighlightSmall")
     c.label:SetPoint("LEFT", c, "RIGHT", 0, 1)
+    c:SetHitRectInsets(0, -math.ceil(c.label:GetStringWidth()), 0, 0)   -- the label is clickable too
     c:SetScript("OnClick", function(self) onClick(self:GetChecked() and true or false) end)
     return c
 end
@@ -157,7 +158,7 @@ local function RowTip(row)
     GameTooltip:SetHyperlink(result.listing.link)
     GameTooltip:AddLine(" ")
     local old = result.replaced or 0
-    GameTooltip:AddLine(("Sugar Daddy: gear score %s -> %s (+%s)"):format(Score(old), Score(old + result.points),
+    GameTooltip:AddLine(("Sugar Daddy: %s -> %s points (+%s)"):format(Score(old), Score(old + result.points),
         Score(result.points)), 0.13, 1, 0.13)
     local worn = Who.Equipped(result.slot)
     local alsoWorn = result.also and Who.Equipped(result.also)
@@ -171,7 +172,7 @@ local function RowTip(row)
     end
     GameTooltip:AddLine(result.entry.perListing and "Price of this exact listing (its suffix varies by listing)." or "Cheapest listing.",
         0.6, 0.6, 0.6)
-    GameTooltip:AddLine("Gear score: the item's stats added up with your spec's weights (see Weights).", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Points: the item's stats added up with your spec's weights (see Weights).", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
 
@@ -533,7 +534,12 @@ end
 
 local function RefreshSettings()
     if not (settings and settings:IsShown()) then return end
-    for _, check in ipairs(settings.slots) do check:SetChecked(not SD.db.skipSlots[check.key]) end
+    local anyHidden = false
+    for _, check in ipairs(settings.slots) do
+        check:SetChecked(not SD.db.skipSlots[check.key])
+        anyHidden = anyHidden or SD.db.skipSlots[check.key] ~= nil
+    end
+    settings.allSlots:SetText(anyHidden and "All" or "None")
     settings.perSlot:SyncValue()
     settings.minUpgrade:SyncValue()
     settings.bags:SetChecked(SD.db.checkBags)
@@ -568,6 +574,14 @@ local function BuildSettings()
         check:SetPoint("TOPLEFT", 8 + col * colW, -42 - r * SETTING_H)
         settings.slots[i] = check
     end
+    -- All slots when any is hidden, otherwise none.
+    settings.allSlots = Button(settings, "None", 56, function(self)
+        local showAll = self:GetText() == "All"
+        for _, check in ipairs(settings.slots) do SD.db.skipSlots[check.key] = (not showAll) or nil end
+        SD.Scanner.Rescore()
+    end)
+    settings.allSlots:SetHeight(18)
+    settings.allSlots:SetPoint("TOPRIGHT", -10, -24)
     local y = -42 - rowsPerCol * SETTING_H - 10
 
     local perSlotLabel = Label(settings, "Options per slot", "GameFontNormalSmall")
@@ -941,7 +955,7 @@ local function Build()
     Columns(header, "GameFontNormalSmall")
     header.name:SetText("Item")
     header.slot:SetText("Slot")
-    header.gain:SetText("Gear score")
+    header.gain:SetText("Upgrade")
     header.price:SetText("Price")
     for i = 1, MAX_ROWS do NewRow(i) end
     list.empty = Label(list, "", "GameFontDisable")

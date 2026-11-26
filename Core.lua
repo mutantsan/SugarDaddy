@@ -11,12 +11,12 @@ local ACCOUNT_DEFAULTS = {
     deepScan = true,     -- weigh items with suffixes ("of the Monkey") listing by listing when needed
     skipSlots = {},      -- [slot group as text] = true: slots left out of the results
     checkBags = false,   -- leave out items worse than one already in your bags
-    minUpgrade = 0,      -- leave out upgrades smaller than this (gear score)
+    minUpgrade = 0,      -- leave out upgrades smaller than this (points)
     perSlot = 3,         -- options shown per slot until its header is clicked
     minQuality = 0,      -- 0 any, 2 green and better, 3 blue and better
     lowerArmor = false,  -- also suggest armor types below your class's best (a hunter's leather)
     sort = "gain",       -- "gain" (biggest upgrade) or "value" (upgrade per gold)
-    suffixBonus = {},    -- [auction house suffix id] = bonus IDs in item links ("1:12756"), learned from searches
+    suffixLinks = {},    -- ["itemID:suffix id:item level"] = the item link its listings carry, learned from searches
     chars = {},          -- ["Name-Realm"] = snapshot of each character and what you picked for it (see Profile.lua)
 }
 -- Spec, Pawn scale and level range belong to whom you shop for: SugarDaddyDB.chars[key].pick.
@@ -70,7 +70,7 @@ SD.On("ADDON_LOADED", function(_, name)
     if name ~= "SugarDaddy" then return end
     SugarDaddyDB = Fill(type(SugarDaddyDB) == "table" and SugarDaddyDB or {}, ACCOUNT_DEFAULTS)
     SugarDaddyCharDB = Fill(type(SugarDaddyCharDB) == "table" and SugarDaddyCharDB or {}, CHAR_DEFAULTS)
-    for _, old in ipairs({ "autoOpen", "pos", "onePerSlot", "startOnTab", "groupBySlot" }) do SugarDaddyDB[old] = nil end   -- retired settings
+    for _, old in ipairs({ "autoOpen", "pos", "onePerSlot", "startOnTab", "groupBySlot", "suffixBonus" }) do SugarDaddyDB[old] = nil end   -- retired settings
     SugarDaddyCharDB.pvp, SugarDaddyCharDB.pvpStam = nil, nil
     SD.db, SD.char = SugarDaddyDB, SugarDaddyCharDB
     for i = 1, #ready do ready[i]() end

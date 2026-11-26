@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.1
+
+### Changed
+- "Gear score" is now called points; the list's column is "Upgrade".
+- Clicking a checkbox's label toggles it too.
+- An All/None button next to "Slots to show".
+
+### Fixed
+- Items with suffixes ("of the Prophet") could show stats far above the real ones (several times the healing),
+  ranking them as big upgrades they weren't. Sugar Daddy now remembers each item's exact link from a search
+  instead of building one from the suffix alone, so suffix items seen for the first time get searched again.
+- The lowest required level can now be set above your own level (to shop ahead only); the highest moves up
+  with it.
+- The buy confirmation weighs the exact listing being bought and says so if it isn't an upgrade after all.
+
 ## 0.5.0
 
 ### Added
